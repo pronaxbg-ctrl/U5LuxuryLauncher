@@ -1,5 +1,7 @@
 package com.u5.carlauncher
 
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -21,6 +23,53 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.PI
 import kotlin.math.sin
+
+/**
+ * Extracts a vibrant primary + glow color pair from album artwork so the One UI
+ * wave progress bar dynamically adapts to every song.
+ */
+fun extractVibrantWaveColors(bitmap: Bitmap?): Pair<Color, Color> {
+    val defaultPair = Pair(Color(0xFFFF1E00), Color(0xFFFF8A3D))
+    if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) return defaultPair
+
+    return try {
+        val scaled = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
+        var bestScore = -1f
+        var bestColor = AndroidColor.rgb(255, 30, 0)
+        val hsv = FloatArray(3)
+
+        for (y in 0 until scaled.height step 2) {
+            for (x in 0 until scaled.width step 2) {
+                val pixel = scaled.getPixel(x, y)
+                AndroidColor.colorToHSV(pixel, hsv)
+                val sat = hsv[1]
+                val value = hsv[2]
+                // Prefer rich, bright colors (skip near-black, near-white, and muddy grays)
+                if (sat > 0.35f && value > 0.35f && value < 0.96f) {
+                    val score = sat * 1.4f + value
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestColor = pixel
+                    }
+                }
+            }
+        }
+        if (scaled != bitmap) scaled.recycle()
+
+        if (bestScore < 0f) return defaultPair
+
+        AndroidColor.colorToHSV(bestColor, hsv)
+        val primaryHsv = floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.75f), hsv[2].coerceAtLeast(0.85f))
+        val glowHsv = floatArrayOf((hsv[0] + 22f) % 360f, (hsv[1] * 0.85f).coerceAtLeast(0.55f), 1.0f)
+
+        Pair(
+            Color(AndroidColor.HSVToColor(primaryHsv)),
+            Color(AndroidColor.HSVToColor(glowHsv))
+        )
+    } catch (_: Exception) {
+        defaultPair
+    }
+}
 
 @Composable
 fun OneUiWaveProgressBar(

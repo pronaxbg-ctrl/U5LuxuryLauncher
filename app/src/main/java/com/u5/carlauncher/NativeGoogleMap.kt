@@ -14,8 +14,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
@@ -87,7 +89,7 @@ object NativeTileCache {
     }
 }
 
-private const val NATIVE_TILE_PX = 384f // Crisp upscaled tile size for car/TV screens
+private const val NATIVE_TILE_PX = 384f
 
 private fun latLonToWorldPx(lat: Double, lon: Double, zoom: Int): Pair<Double, Double> {
     val scale = NATIVE_TILE_PX * 2.0.pow(zoom)
@@ -105,7 +107,6 @@ private fun worldPxToLatLon(x: Double, y: Double, zoom: Int): Pair<Double, Doubl
     return Pair(lat.coerceIn(-85.0511, 85.0511), lon)
 }
 
-// Smooth dark cockpit color matrix (inverts bright map roads into sleek dark-navy theme)
 private val DARK_MAP_COLOR_FILTER = ColorFilter.colorMatrix(
     ColorMatrix(
         floatArrayOf(
@@ -123,6 +124,7 @@ fun NativeGoogleMapView(
     centerLon: Double,
     carLat: Double,
     carLon: Double,
+    carBearing: Float,
     zoom: Int,
     isSatellite: Boolean,
     onPan: (Double, Double) -> Unit,
@@ -132,12 +134,10 @@ fun NativeGoogleMapView(
     var canvasSize by remember { mutableStateOf(IntSize(800, 600)) }
     var tileVersion by remember { mutableIntStateOf(0) }
 
-    // Keep latest coordinates for drag gesture math
     val latestCenterLat by rememberUpdatedState(centerLat)
     val latestCenterLon by rememberUpdatedState(centerLon)
     val latestZoom by rememberUpdatedState(zoom)
 
-    // Trigger missing tile fetches whenever viewport changes
     LaunchedEffect(centerLat, centerLon, zoom, isSatellite, canvasSize) {
         val w = canvasSize.width.coerceAtLeast(256)
         val h = canvasSize.height.coerceAtLeast(256)
@@ -187,7 +187,6 @@ fun NativeGoogleMapView(
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Read tileVersion so Compose redraws as soon as each tile finishes downloading
             @Suppress("UNUSED_VARIABLE")
             val v = tileVersion
 
@@ -226,25 +225,26 @@ fun NativeGoogleMapView(
                 }
             }
 
-            // Glowing Car GPS Marker
+            // Rotating CarPlay-style Directional Navigation Arrow
             val (carX, carY) = latLonToWorldPx(carLat, carLon, zoom)
             val markerPos = Offset((carX - topLeftX).toFloat(), (carY - topLeftY).toFloat())
+
             drawCircle(
-                color = Color(0xFF38BDF8).copy(alpha = 0.28f),
-                radius = 28f,
+                color = Color(0xFF38BDF8).copy(alpha = 0.25f),
+                radius = 32f,
                 center = markerPos
             )
-            drawCircle(
-                color = Color(0xFF38BDF8),
-                radius = 12f,
-                center = markerPos
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 12f,
-                center = markerPos,
-                style = Stroke(width = 3.5f)
-            )
+            rotate(degrees = carBearing, pivot = markerPos) {
+                val arrow = Path().apply {
+                    moveTo(markerPos.x, markerPos.y - 20f)
+                    lineTo(markerPos.x + 15f, markerPos.y + 15f)
+                    lineTo(markerPos.x, markerPos.y + 8f)
+                    lineTo(markerPos.x - 15f, markerPos.y + 15f)
+                    close()
+                }
+                drawPath(path = arrow, color = Color(0xFF38BDF8))
+                drawPath(path = arrow, color = Color.White, style = Stroke(width = 3.2f))
+            }
         }
     }
 }

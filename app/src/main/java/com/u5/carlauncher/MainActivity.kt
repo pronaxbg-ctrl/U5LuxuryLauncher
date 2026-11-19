@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.u5.carlauncher
 
 import android.Manifest
@@ -11,6 +13,8 @@ import android.graphics.drawable.Drawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -19,6 +23,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -53,11 +58,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 data class InstalledApp(
     val label: String,
     val packageName: String,
     val icon: ImageBitmap
+)
+
+data class DefaultTileConfig(
+    val slotKey: String,
+    val defaultTitle: String,
+    val defaultPkg: String,
+    val defaultIcon: ImageVector,
+    val defaultGradient: List<Color>,
+    val isSmsFallback: Boolean = false
 )
 
 class MainActivity : ComponentActivity() {
@@ -84,10 +99,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@SuppressLint("MissingPermission")
 @Composable
 fun U5LuxuryCockpit() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("u5_luxury_prefs", Context.MODE_PRIVATE) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     var theme by remember {
         mutableStateOf(LuxuryThemeType.fromId(prefs.getString("theme_id", null)))
@@ -97,6 +114,74 @@ fun U5LuxuryCockpit() {
     }
     var showAppDrawer by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
+    var customizingSlotKey by remember { mutableStateOf<String?>(null) }
+    var isNightDimmed by remember { mutableStateOf(false) }
+
+    // Custom pinned packages for the 4 CarPlay tiles (persisted in SharedPreferences)
+    var tile0Pkg by remember { mutableStateOf(prefs.getString("tile_0_pkg", null)) }
+    var tile1Pkg by remember { mutableStateOf(prefs.getString("tile_1_pkg", null)) }
+    var tile2Pkg by remember { mutableStateOf(prefs.getString("tile_2_pkg", null)) }
+    var tile3Pkg by remember { mutableStateOf(prefs.getString("tile_3_pkg", null)) }
+
+    // Shared Live GPS State (feeds Map, Speedometer, Bearing Arrow, and Live Weather)
+    var carLat by remember { mutableDoubleStateOf(55.7093) }
+    var carLon by remember { mutableDoubleStateOf(9.5357) }
+    var carSpeedKmh by remember { mutableIntStateOf(0) }
+    var carBearing by remember { mutableFloatStateOf(0f) }
+    var liveWeather by remember { mutableStateOf<LiveWeather?>(null) }
+
+    DisposableEffect(context) {
+        val hasFine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                carLat = location.latitude
+                carLon = location.longitude
+                if (location.hasSpeed()) {
+                    carSpeedKmh = (location.speed * 3.6f).roundToInt().coerceAtLeast(0)
+                }
+                if (location.hasBearing() && location.speed > 1.2f) {
+                    carBearing = location.bearing
+                }
+            }
+        }
+
+        if ((hasFine || hasCoarse) && locManager != null) {
+            runCatching {
+                val best = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                if (best != null) {
+                    carLat = best.latitude
+                    carLon = best.longitude
+                }
+                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1500L, 2f, listener)
+                }
+                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 15f, listener)
+                }
+            }
+        }
+
+        onDispose {
+            runCatching { locManager?.removeUpdates(listener) }
+        }
+    }
+
+    // Fetch live Open-Meteo weather on start & every 15 minutes
+    LaunchedEffect(Unit) {
+        while (true) {
+            val w = WeatherService.fetchCurrentWeather(carLat, carLon)
+            if (w != null) liveWeather = w
+            delay(15 * 60 * 1000L)
+        }
+    }
 
     val mediaState by MediaRepository.state.collectAsState()
     var currentTime by remember { mutableStateOf("18:10") }
@@ -111,6 +196,16 @@ fun U5LuxuryCockpit() {
     }
 
     val installedApps = remember { loadInstalledApps(context) }
+    val appByPkg = remember(installedApps) { installedApps.associateBy { it.packageName } }
+
+    val defaultTiles = remember {
+        listOf(
+            DefaultTileConfig("tile_0_pkg", "Spotify", "com.spotify.music", Icons.Rounded.GraphicEq, listOf(Color(0xFF1ED760), Color(0xFF15803D))),
+            DefaultTileConfig("tile_1_pkg", "YT Music", "com.google.android.apps.youtube.music", Icons.Rounded.PlayArrow, listOf(Color(0xFFFF3B30), Color(0xFFB91C1C))),
+            DefaultTileConfig("tile_2_pkg", "Messages", "", Icons.Rounded.ChatBubble, listOf(Color(0xFF34C759), Color(0xFF16A34A)), isSmsFallback = true),
+            DefaultTileConfig("tile_3_pkg", "Settings", "com.android.settings", Icons.Rounded.Settings, listOf(Color(0xFF8E8E93), Color(0xFF48484A)))
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -127,9 +222,10 @@ fun U5LuxuryCockpit() {
                 .padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. LEFT CARPLAY-STYLE DOCK
+            // 1. LEFT CARPLAY-STYLE DOCK (Clock + Live Weather + Apps + Theme)
             CarPlayLuxuryDock(
                 time = currentTime,
+                weather = liveWeather,
                 theme = theme,
                 finish = finish,
                 onMapsClick = { launchPackage(context, "com.google.android.apps.maps") },
@@ -139,29 +235,34 @@ fun U5LuxuryCockpit() {
                 onThemeClick = { showThemeModal = true }
             )
 
-            // 2. CENTER-LEFT: 100% NATIVE KOTLIN GOOGLE MAPS (ZERO WEBVIEW)
+            // 2. CENTER-LEFT: NATIVE GOOGLE MAPS + SPEEDOMETER + ROTATING ARROW + 1-TAP NAV SHORTCUTS
             EmbeddedNavigationMapCard(
+                carLat = carLat,
+                carLon = carLon,
+                carSpeedKmh = carSpeedKmh,
+                carBearing = carBearing,
                 theme = theme,
                 finish = finish,
                 modifier = Modifier
                     .weight(1.22f)
                     .fillMaxHeight(),
-                onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") }
+                onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") },
+                onNavigateQuery = { query -> launchGoogleMapsNavigation(context, query) }
             )
 
-            // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + CARPLAY 2x2 APPS (BOTTOM)
+            // 3. RIGHT COLUMN: DYNAMIC-COLOR ONE UI MUSIC PLAYER + QUICK CONTROLS + CUSTOMIZABLE 2x2 TILES
             Column(
                 modifier = Modifier
                     .weight(1.0f)
                     .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OneUiStyleMusicCard(
                     mediaState = mediaState,
                     theme = theme,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1.28f),
+                        .weight(1.26f),
                     onPlayPause = { MediaRepository.togglePlayPause(context) },
                     onPrev = { MediaRepository.skipPrevious(context) },
                     onNext = { MediaRepository.skipNext(context) },
@@ -180,70 +281,124 @@ fun U5LuxuryCockpit() {
                     }
                 )
 
+                // Compact Quick Cockpit Strip (Volume - / + & 1-Tap Night Dimming)
+                QuickCockpitControlStrip(
+                    theme = theme,
+                    finish = finish,
+                    isNightDimmed = isNightDimmed,
+                    onVolDown = {
+                        audioManager.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_LOWER,
+                            AudioManager.FLAG_SHOW_UI
+                        )
+                    },
+                    onVolUp = {
+                        audioManager.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_RAISE,
+                            AudioManager.FLAG_SHOW_UI
+                        )
+                    },
+                    onToggleNightDim = { isNightDimmed = !isNightDimmed }
+                )
+
+                // Row 1: Customizable CarPlay Tiles (Long-press to swap app!)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.86f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .weight(0.76f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    CarPlayAppTile(
-                        title = "Spotify",
-                        icon = Icons.Rounded.GraphicEq,
-                        badgeGradient = listOf(Color(0xFF1ED760), Color(0xFF15803D)),
+                    CustomizableCarPlayTile(
+                        config = defaultTiles[0],
+                        customApp = tile0Pkg?.let { appByPkg[it] },
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
-                        onClick = { launchPackage(context, "com.spotify.music") }
+                        onClick = {
+                            val pkg = tile0Pkg ?: defaultTiles[0].defaultPkg
+                            launchPackage(context, pkg)
+                        },
+                        onLongClick = { customizingSlotKey = defaultTiles[0].slotKey }
                     )
-                    CarPlayAppTile(
-                        title = "YT Music",
-                        icon = Icons.Rounded.PlayArrow,
-                        badgeGradient = listOf(Color(0xFFFF3B30), Color(0xFFB91C1C)),
+                    CustomizableCarPlayTile(
+                        config = defaultTiles[1],
+                        customApp = tile1Pkg?.let { appByPkg[it] },
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
-                        onClick = { launchPackage(context, "com.google.android.apps.youtube.music") }
+                        onClick = {
+                            val pkg = tile1Pkg ?: defaultTiles[1].defaultPkg
+                            launchPackage(context, pkg)
+                        },
+                        onLongClick = { customizingSlotKey = defaultTiles[1].slotKey }
                     )
                 }
 
+                // Row 2: Customizable CarPlay Tiles (Long-press to swap app!)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.86f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .weight(0.76f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    CarPlayAppTile(
-                        title = "Messages",
-                        icon = Icons.Rounded.ChatBubble,
-                        badgeGradient = listOf(Color(0xFF34C759), Color(0xFF16A34A)),
+                    CustomizableCarPlayTile(
+                        config = defaultTiles[2],
+                        customApp = tile2Pkg?.let { appByPkg[it] },
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
-                        onClick = { launchSmsApp(context) }
+                        onClick = {
+                            if (tile2Pkg != null) launchPackage(context, tile2Pkg!!)
+                            else launchSmsApp(context)
+                        },
+                        onLongClick = { customizingSlotKey = defaultTiles[2].slotKey }
                     )
-                    CarPlayAppTile(
-                        title = "Settings",
-                        icon = Icons.Rounded.Settings,
-                        badgeGradient = listOf(Color(0xFF8E8E93), Color(0xFF48484A)),
+                    CustomizableCarPlayTile(
+                        config = defaultTiles[3],
+                        customApp = tile3Pkg?.let { appByPkg[it] },
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
-                        onClick = { launchPackage(context, "com.android.settings") }
+                        onClick = {
+                            val pkg = tile3Pkg ?: defaultTiles[3].defaultPkg
+                            launchPackage(context, pkg)
+                        },
+                        onLongClick = { customizingSlotKey = defaultTiles[3].slotKey }
                     )
                 }
             }
         }
 
-        if (showAppDrawer) {
+        // All Apps Drawer (or Tile Customization Picker when long-pressing a tile)
+        if (showAppDrawer || customizingSlotKey != null) {
+            val isPickingTile = customizingSlotKey != null
             AllAppsLuxuryOverlay(
+                title = if (isPickingTile) "Choose App for Tile" else "Applications",
                 apps = installedApps,
                 theme = theme,
                 finish = finish,
                 onAppClick = { pkg ->
-                    showAppDrawer = false
-                    launchPackage(context, pkg)
+                    if (isPickingTile) {
+                        val key = customizingSlotKey!!
+                        prefs.edit().putString(key, pkg).apply()
+                        when (key) {
+                            "tile_0_pkg" -> tile0Pkg = pkg
+                            "tile_1_pkg" -> tile1Pkg = pkg
+                            "tile_2_pkg" -> tile2Pkg = pkg
+                            "tile_3_pkg" -> tile3Pkg = pkg
+                        }
+                        customizingSlotKey = null
+                    } else {
+                        showAppDrawer = false
+                        launchPackage(context, pkg)
+                    }
                 },
-                onClose = { showAppDrawer = false }
+                onClose = {
+                    showAppDrawer = false
+                    customizingSlotKey = null
+                }
             )
         }
 
@@ -262,12 +417,22 @@ fun U5LuxuryCockpit() {
                 onClose = { showThemeModal = false }
             )
         }
+
+        // 1-Tap Night Dimming Filter Overlay (non-blocking visual dim for night driving)
+        if (isNightDimmed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.42f))
+            )
+        }
     }
 }
 
 @Composable
 fun CarPlayLuxuryDock(
     time: String,
+    weather: LiveWeather?,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     onMapsClick: () -> Unit,
@@ -281,30 +446,52 @@ fun CarPlayLuxuryDock(
             .width(96.dp)
             .fillMaxHeight()
             .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
-            .padding(vertical = 16.dp, horizontal = 10.dp),
+            .padding(vertical = 14.dp, horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
+        // Clock + Live GPS Weather Pill
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = time,
                 color = Color.White,
-                fontSize = 24.sp,
+                fontSize = 23.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp
             )
-            Box(
-                modifier = Modifier
-                    .padding(top = 6.dp)
-                    .width(26.dp)
-                    .height(3.dp)
-                    .clip(CircleShape)
-                    .background(theme.accent)
-            )
+            if (weather?.tempC != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        imageVector = weather.icon,
+                        contentDescription = "Weather",
+                        tint = theme.accentGlow,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "${weather.tempC}°",
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .width(26.dp)
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(theme.accent)
+                )
+            }
         }
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             CarPlayDockBadge(
@@ -345,7 +532,7 @@ fun CarPlayDockBadge(
 ) {
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(54.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(Brush.linearGradient(gradient))
             .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
@@ -356,71 +543,106 @@ fun CarPlayDockBadge(
             imageVector = icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(30.dp)
+            modifier = Modifier.size(28.dp)
         )
     }
 }
 
-@SuppressLint("MissingPermission")
+@Composable
+fun QuickCockpitControlStrip(
+    theme: LuxuryThemeType,
+    finish: ButtonFinish,
+    isNightDimmed: Boolean,
+    onVolDown: () -> Unit,
+    onVolUp: () -> Unit,
+    onToggleNightDim: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .luxuryCardSurface(theme, finish, cornerRadius = 18.dp)
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            QuickStripChip(icon = Icons.Rounded.VolumeDown, label = "Vol -", onClick = onVolDown)
+            QuickStripChip(icon = Icons.Rounded.VolumeUp, label = "Vol +", onClick = onVolUp)
+        }
+
+        QuickStripChip(
+            icon = if (isNightDimmed) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
+            label = if (isNightDimmed) "Bright" else "Night Dim",
+            highlighted = isNightDimmed,
+            accent = theme.accent,
+            onClick = onToggleNightDim
+        )
+    }
+}
+
+@Composable
+fun QuickStripChip(
+    icon: ImageVector,
+    label: String,
+    highlighted: Boolean = false,
+    accent: Color = Color(0xFF38BDF8),
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (highlighted) accent.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f))
+            .border(
+                1.dp,
+                if (highlighted) accent else Color.White.copy(alpha = 0.14f),
+                RoundedCornerShape(12.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
 @Composable
 fun EmbeddedNavigationMapCard(
+    carLat: Double,
+    carLon: Double,
+    carSpeedKmh: Int,
+    carBearing: Float,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     modifier: Modifier = Modifier,
-    onOpenGoogleMaps: () -> Unit
+    onOpenGoogleMaps: () -> Unit,
+    onNavigateQuery: (String) -> Unit
 ) {
-    val context = LocalContext.current
     var isSatellite by remember { mutableStateOf(false) }
     var zoom by remember { mutableIntStateOf(15) }
     var followCar by remember { mutableStateOf(true) }
-    var carLat by remember { mutableDoubleStateOf(55.7093) }
-    var carLon by remember { mutableDoubleStateOf(9.5357) }
-    var centerLat by remember { mutableDoubleStateOf(55.7093) }
-    var centerLon by remember { mutableDoubleStateOf(9.5357) }
+    var centerLat by remember { mutableDoubleStateOf(carLat) }
+    var centerLon by remember { mutableDoubleStateOf(carLon) }
 
-    // Native Android GPS + Network Location Listener
-    DisposableEffect(context) {
-        val hasFine = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val hasCoarse = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-
-        val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                carLat = location.latitude
-                carLon = location.longitude
-                if (followCar) {
-                    centerLat = location.latitude
-                    centerLon = location.longitude
-                }
-            }
-        }
-
-        if ((hasFine || hasCoarse) && locManager != null) {
-            runCatching {
-                val lastGps = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                val lastNet = locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                val best = lastGps ?: lastNet
-                if (best != null) {
-                    carLat = best.latitude
-                    carLon = best.longitude
-                    centerLat = best.latitude
-                    centerLon = best.longitude
-                }
-                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    locManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2500L, 5f, listener)
-                }
-                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    locManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 15f, listener)
-                }
-            }
-        }
-
-        onDispose {
-            runCatching { locManager?.removeUpdates(listener) }
+    LaunchedEffect(carLat, carLon, followCar) {
+        if (followCar) {
+            centerLat = carLat
+            centerLon = carLon
         }
     }
 
@@ -429,12 +651,12 @@ fun EmbeddedNavigationMapCard(
             .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
             .clip(RoundedCornerShape(28.dp))
     ) {
-        // 100% Native Jetpack Compose Canvas Map (ZERO WebView!)
         NativeGoogleMapView(
             centerLat = centerLat,
             centerLon = centerLon,
             carLat = carLat,
             carLon = carLon,
+            carBearing = carBearing,
             zoom = zoom,
             isSatellite = isSatellite,
             onPan = { newLat, newLon ->
@@ -445,7 +667,7 @@ fun EmbeddedNavigationMapCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top Floating CarPlay-Style Navigation Bar
+        // Top Floating Bar: Google Maps + Sat/Dark + Navigate
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -473,7 +695,7 @@ fun EmbeddedNavigationMapCard(
                 Text(
                     text = "Google Maps",
                     color = Color.White,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -482,7 +704,6 @@ fun EmbeddedNavigationMapCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Dark / Satellite Mode Toggle
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(18.dp))
@@ -499,7 +720,6 @@ fun EmbeddedNavigationMapCard(
                     )
                 }
 
-                // Fullscreen Google Maps Launch Button
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(18.dp))
@@ -514,7 +734,7 @@ fun EmbeddedNavigationMapCard(
                         imageVector = Icons.Rounded.OpenInFull,
                         contentDescription = "Navigate",
                         tint = Color.White,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = "Navigate",
@@ -522,6 +742,53 @@ fun EmbeddedNavigationMapCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+
+        // Bottom-Left: Live GPS Speedometer Pill + 1-Tap Nav Shortcuts (Home, Work, EV Charger)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Live Speedometer Pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xE60B0F17))
+                    .border(1.dp, theme.accent.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "$carSpeedKmh",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-1).sp
+                )
+                Text(
+                    text = "km/h",
+                    color = theme.accentGlow,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+
+            // 1-Tap Navigation Shortcuts
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NavShortcutPill(icon = Icons.Rounded.Home, label = "Home") {
+                    onNavigateQuery("Home")
+                }
+                NavShortcutPill(icon = Icons.Rounded.Work, label = "Work") {
+                    onNavigateQuery("Work")
+                }
+                NavShortcutPill(icon = Icons.Rounded.EvStation, label = "EV Charger", tint = Color(0xFF4ADE80)) {
+                    onNavigateQuery("EV charging station")
                 }
             }
         }
@@ -545,6 +812,38 @@ fun EmbeddedNavigationMapCard(
                 centerLon = carLon
             }
         }
+    }
+}
+
+@Composable
+fun NavShortcutPill(
+    icon: ImageVector,
+    label: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xE011141B))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(14.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 11.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -590,6 +889,11 @@ fun OneUiStyleMusicCard(
         0f
     }
 
+    // Dynamic album-art dominant color extraction for the glowing wave bar
+    val (wavePrimary, waveGlow) = remember(mediaState.albumArt) {
+        extractVibrantWaveColors(mediaState.albumArt)
+    }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
@@ -622,7 +926,7 @@ fun OneUiStyleMusicCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -633,7 +937,7 @@ fun OneUiStyleMusicCard(
                 Text(
                     text = mediaState.sourceApp,
                     color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -661,7 +965,7 @@ fun OneUiStyleMusicCard(
                         contentDescription = "Audio Output",
                         tint = Color.White.copy(alpha = 0.9f),
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(20.dp)
                             .clickable { onOpenMusicApp() }
                     )
                 }
@@ -678,13 +982,13 @@ fun OneUiStyleMusicCard(
                     imageVector = Icons.Rounded.PlayCircle,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "${mediaState.title}  •  ${mediaState.artist}",
                     color = Color.White,
-                    fontSize = 19.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -695,11 +999,11 @@ fun OneUiStyleMusicCard(
                 OneUiWaveProgressBar(
                     progress = progress,
                     isPlaying = mediaState.isPlaying,
-                    wavePrimary = Color(0xFFFF1E00),
-                    waveGlow = Color(0xFFFF8A3D),
+                    wavePrimary = wavePrimary,
+                    waveGlow = waveGlow,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(30.dp),
+                        .height(28.dp),
                     onSeekFraction = onSeekFraction
                 )
                 Row(
@@ -709,13 +1013,13 @@ fun OneUiStyleMusicCard(
                     Text(
                         text = formatDuration(mediaState.positionMs),
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = formatDuration(mediaState.durationMs),
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -731,28 +1035,28 @@ fun OneUiStyleMusicCard(
                     contentDescription = "Like",
                     tint = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(24.dp)
                         .clickable { onOpenMusicApp() }
                 )
 
                 OneUiCircleButton(
                     icon = Icons.Rounded.SkipPrevious,
-                    size = 52.dp,
-                    iconSize = 28.dp,
+                    size = 48.dp,
+                    iconSize = 26.dp,
                     onClick = onPrev
                 )
 
                 OneUiCircleButton(
                     icon = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    size = 58.dp,
-                    iconSize = 32.dp,
+                    size = 54.dp,
+                    iconSize = 30.dp,
                     onClick = onPlayPause
                 )
 
                 OneUiCircleButton(
                     icon = Icons.Rounded.SkipNext,
-                    size = 52.dp,
-                    iconSize = 28.dp,
+                    size = 48.dp,
+                    iconSize = 26.dp,
                     onClick = onNext
                 )
 
@@ -761,7 +1065,7 @@ fun OneUiStyleMusicCard(
                     contentDescription = "Shuffle",
                     tint = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(24.dp)
                         .clickable { onOpenMusicApp() }
                 )
             }
@@ -794,54 +1098,76 @@ fun OneUiCircleButton(
 }
 
 @Composable
-fun CarPlayAppTile(
-    title: String,
-    icon: ImageVector,
-    badgeGradient: List<Color>,
+fun CustomizableCarPlayTile(
+    config: DefaultTileConfig,
+    customApp: InstalledApp?,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     Row(
         modifier = modifier
             .fillMaxHeight()
-            .luxuryButtonSurface(theme, finish, cornerRadius = 24.dp)
-            .clickable { onClick() }
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .luxuryButtonSurface(theme, finish, cornerRadius = 22.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Brush.linearGradient(badgeGradient))
-                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = Color.White,
-                modifier = Modifier.size(30.dp)
+        if (customApp != null) {
+            Image(
+                bitmap = customApp.icon,
+                contentDescription = customApp.label,
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(RoundedCornerShape(14.dp))
+            )
+            Text(
+                text = customApp.label,
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.3).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.linearGradient(config.defaultGradient))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = config.defaultIcon,
+                    contentDescription = config.defaultTitle,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Text(
+                text = config.defaultTitle,
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.3).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.3).sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
 @Composable
 fun AllAppsLuxuryOverlay(
+    title: String,
     apps: List<InstalledApp>,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
@@ -861,7 +1187,7 @@ fun AllAppsLuxuryOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Applications",
+                    text = title,
                     color = Color.White,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold
@@ -923,7 +1249,7 @@ fun ThemeStudioOverlay(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val installedVersion = remember { LauncherUpdater.getCurrentVersionName(context) }
-    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Fixed Signing Key Active") }
+    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Long-press any tile to swap apps") }
     var isUpdating by remember { mutableStateOf(false) }
 
     Box(
@@ -1140,6 +1466,19 @@ fun formatDuration(ms: Long): String {
     val min = totalSec / 60L
     val sec = totalSec % 60L
     return String.format(Locale.US, "%02d:%02d", min, sec)
+}
+
+fun launchGoogleMapsNavigation(context: Context, query: String) {
+    val uri = Uri.parse("google.navigation:q=" + Uri.encode(query))
+    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+        setPackage("com.google.android.apps.maps")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (intent.resolveActivity(context.packageManager) != null) {
+        context.startActivity(intent)
+    } else {
+        launchPackage(context, "com.google.android.apps.maps")
+    }
 }
 
 fun launchPackage(context: Context, packageName: String) {

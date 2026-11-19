@@ -1,4 +1,8 @@
-# U5 Luxury Car Launcher v4.1 (100% Native Kotlin Map Engine)
+# U5 Luxury Car Launcher v4.2 (Full Cockpit Suite)
 
-- **Zero WebView**: `NativeGoogleMap.kt` downloads Google Maps tiles directly in Kotlin and draws them onto a GPU-accelerated Jetpack Compose Canvas with an in-memory LRU cache.
-- **Dark Mode & Satellite**: Instant toggle between sleek Dark Mode roads and Google Satellite view, plus smooth touch drag-to-pan, zoom (`+`/`-`), and live Android GPS tracking.
+- **Live GPS Speedometer & Rotating Navigation Arrow**: Real-time `km/h` speed pill + directional car arrow on the native Google Maps engine.
+- **1-Tap Navigation Shortcuts**: Instant **Home**, **Work**, and **EV Charger** turn-by-turn launch pills.
+- **Live Dock Weather**: Automatic GPS temperature & weather icon via Open-Meteo (zero API key required).
+- **Long-Press Customizable Tiles**: Long-press any of the 4 CarPlay tiles to swap in any installed app.
+- **Dynamic Album-Art Wave Colors**: One UI music wave automatically adapts to each song's album cover.
+- **Quick Cockpit Strip**: 1-tap **Vol -**, **Vol +**, and **Night Dim** screen filter.
