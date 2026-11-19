@@ -1,8 +1,5 @@
-# U5 Luxury Car Launcher v4.2 (Full Cockpit Suite)
+# U5 Luxury Car Launcher v4.3 (Chronograph + OEM Cockpit Edition)
 
-- **Live GPS Speedometer & Rotating Navigation Arrow**: Real-time `km/h` speed pill + directional car arrow on the native Google Maps engine.
-- **1-Tap Navigation Shortcuts**: Instant **Home**, **Work**, and **EV Charger** turn-by-turn launch pills.
-- **Live Dock Weather**: Automatic GPS temperature & weather icon via Open-Meteo (zero API key required).
-- **Long-Press Customizable Tiles**: Long-press any of the 4 CarPlay tiles to swap in any installed app.
-- **Dynamic Album-Art Wave Colors**: One UI music wave automatically adapts to each song's album cover.
-- **Quick Cockpit Strip**: 1-tap **Vol -**, **Vol +**, and **Night Dim** screen filter.
+- **Luxury Chronograph Watch (`LuxuryChronographWatch.kt`)**: Speedmaster-inspired analog chronograph with tachymeter bezel, 3 live subdials, smooth mechanical sweeping second hand, and 1-tap Silver/Obsidian dial switch.
+- **OEM Automotive Control Bar**: Sleek full-width bottom bar with cool-blue `−` / warm-red `+` volume controls, live volume %, Mute, Night Dim, center illuminated Apps capsule, Sat/Dark map toggle, Watch dial toggle, Theme Studio, and Settings.
+- **Native Google Maps + Speedometer + Weather + Dynamic One UI Music**: Perfectly proportioned for both widescreen car displays and 16:9 TVs.

@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-
 package com.u5.carlauncher
 
 import android.Manifest
@@ -23,7 +21,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -66,15 +63,6 @@ data class InstalledApp(
     val icon: ImageBitmap
 )
 
-data class DefaultTileConfig(
-    val slotKey: String,
-    val defaultTitle: String,
-    val defaultPkg: String,
-    val defaultIcon: ImageVector,
-    val defaultGradient: List<Color>,
-    val isSmsFallback: Boolean = false
-)
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,18 +100,26 @@ fun U5LuxuryCockpit() {
     var finish by remember {
         mutableStateOf(ButtonFinish.fromId(prefs.getString("finish_id", null)))
     }
+    var isWhiteWatchDial by remember {
+        mutableStateOf(prefs.getBoolean("watch_white_dial", true))
+    }
     var showAppDrawer by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
-    var customizingSlotKey by remember { mutableStateOf<String?>(null) }
     var isNightDimmed by remember { mutableStateOf(false) }
+    var isSatellite by remember { mutableStateOf(false) }
 
-    // Custom pinned packages for the 4 CarPlay tiles (persisted in SharedPreferences)
-    var tile0Pkg by remember { mutableStateOf(prefs.getString("tile_0_pkg", null)) }
-    var tile1Pkg by remember { mutableStateOf(prefs.getString("tile_1_pkg", null)) }
-    var tile2Pkg by remember { mutableStateOf(prefs.getString("tile_2_pkg", null)) }
-    var tile3Pkg by remember { mutableStateOf(prefs.getString("tile_3_pkg", null)) }
+    // Live audio volume percentage for the OEM bottom bar
+    fun readVolumePct(): Int {
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return ((cur * 100f) / max).roundToInt().coerceIn(0, 100)
+    }
 
-    // Shared Live GPS State (feeds Map, Speedometer, Bearing Arrow, and Live Weather)
+    var volumePct by remember { mutableIntStateOf(readVolumePct()) }
+    var isMuted by remember { mutableStateOf(volumePct == 0) }
+    var preMuteVolume by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(3)) }
+
+    // Shared Live GPS State (Map + Speedometer + Rotating Arrow + Weather)
     var carLat by remember { mutableDoubleStateOf(55.7093) }
     var carLon by remember { mutableDoubleStateOf(9.5357) }
     var carSpeedKmh by remember { mutableIntStateOf(0) }
@@ -174,7 +170,6 @@ fun U5LuxuryCockpit() {
         }
     }
 
-    // Fetch live Open-Meteo weather on start & every 15 minutes
     LaunchedEffect(Unit) {
         while (true) {
             val w = WeatherService.fetchCurrentWeather(carLat, carLon)
@@ -191,21 +186,13 @@ fun U5LuxuryCockpit() {
         while (true) {
             currentTime = timeFmt.format(Date())
             MediaRepository.refreshSessions(context)
+            volumePct = readVolumePct()
+            isMuted = volumePct == 0
             delay(1000)
         }
     }
 
     val installedApps = remember { loadInstalledApps(context) }
-    val appByPkg = remember(installedApps) { installedApps.associateBy { it.packageName } }
-
-    val defaultTiles = remember {
-        listOf(
-            DefaultTileConfig("tile_0_pkg", "Spotify", "com.spotify.music", Icons.Rounded.GraphicEq, listOf(Color(0xFF1ED760), Color(0xFF15803D))),
-            DefaultTileConfig("tile_1_pkg", "YT Music", "com.google.android.apps.youtube.music", Icons.Rounded.PlayArrow, listOf(Color(0xFFFF3B30), Color(0xFFB91C1C))),
-            DefaultTileConfig("tile_2_pkg", "Messages", "", Icons.Rounded.ChatBubble, listOf(Color(0xFF34C759), Color(0xFF16A34A)), isSmsFallback = true),
-            DefaultTileConfig("tile_3_pkg", "Settings", "com.android.settings", Icons.Rounded.Settings, listOf(Color(0xFF8E8E93), Color(0xFF48484A)))
-        )
-    }
 
     Box(
         modifier = Modifier
@@ -216,189 +203,146 @@ fun U5LuxuryCockpit() {
                 )
             )
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // 1. LEFT CARPLAY-STYLE DOCK (Clock + Live Weather + Apps + Theme)
-            CarPlayLuxuryDock(
-                time = currentTime,
-                weather = liveWeather,
-                theme = theme,
-                finish = finish,
-                onMapsClick = { launchPackage(context, "com.google.android.apps.maps") },
-                onSpotifyClick = { launchPackage(context, "com.spotify.music") },
-                onYtMusicClick = { launchPackage(context, "com.google.android.apps.youtube.music") },
-                onAppsClick = { showAppDrawer = true },
-                onThemeClick = { showThemeModal = true }
-            )
-
-            // 2. CENTER-LEFT: NATIVE GOOGLE MAPS + SPEEDOMETER + ROTATING ARROW + 1-TAP NAV SHORTCUTS
-            EmbeddedNavigationMapCard(
-                carLat = carLat,
-                carLon = carLon,
-                carSpeedKmh = carSpeedKmh,
-                carBearing = carBearing,
-                theme = theme,
-                finish = finish,
+            // MAIN COCKPIT ROW (Dock + Native Map + Right Stack: Music & Luxury Watch)
+            Row(
                 modifier = Modifier
-                    .weight(1.22f)
-                    .fillMaxHeight(),
-                onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") },
-                onNavigateQuery = { query -> launchGoogleMapsNavigation(context, query) }
-            )
-
-            // 3. RIGHT COLUMN: DYNAMIC-COLOR ONE UI MUSIC PLAYER + QUICK CONTROLS + CUSTOMIZABLE 2x2 TILES
-            Column(
-                modifier = Modifier
-                    .weight(1.0f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OneUiStyleMusicCard(
-                    mediaState = mediaState,
-                    theme = theme,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1.26f),
-                    onPlayPause = { MediaRepository.togglePlayPause(context) },
-                    onPrev = { MediaRepository.skipPrevious(context) },
-                    onNext = { MediaRepository.skipNext(context) },
-                    onSeekFraction = { frac -> MediaRepository.seekToFraction(context, frac) },
-                    onOpenAccess = {
-                        runCatching {
-                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                        }
-                    },
-                    onOpenMusicApp = {
-                        if (mediaState.sourceApp.contains("YT", ignoreCase = true)) {
-                            launchPackage(context, "com.google.android.apps.youtube.music")
-                        } else {
-                            launchPackage(context, "com.spotify.music")
-                        }
-                    }
-                )
-
-                // Compact Quick Cockpit Strip (Volume - / + & 1-Tap Night Dimming)
-                QuickCockpitControlStrip(
+                // 1. LEFT CARPLAY-STYLE DOCK
+                CarPlayLuxuryDock(
+                    time = currentTime,
+                    weather = liveWeather,
                     theme = theme,
                     finish = finish,
-                    isNightDimmed = isNightDimmed,
-                    onVolDown = {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_LOWER,
-                            AudioManager.FLAG_SHOW_UI
-                        )
-                    },
-                    onVolUp = {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_RAISE,
-                            AudioManager.FLAG_SHOW_UI
-                        )
-                    },
-                    onToggleNightDim = { isNightDimmed = !isNightDimmed }
+                    onMapsClick = { launchPackage(context, "com.google.android.apps.maps") },
+                    onSpotifyClick = { launchPackage(context, "com.spotify.music") },
+                    onYtMusicClick = { launchPackage(context, "com.google.android.apps.youtube.music") },
+                    onAppsClick = { showAppDrawer = true },
+                    onThemeClick = { showThemeModal = true }
                 )
 
-                // Row 1: Customizable CarPlay Tiles (Long-press to swap app!)
-                Row(
+                // 2. CENTER-LEFT: NATIVE GOOGLE MAPS + SPEEDOMETER + NAV SHORTCUTS
+                EmbeddedNavigationMapCard(
+                    carLat = carLat,
+                    carLon = carLon,
+                    carSpeedKmh = carSpeedKmh,
+                    carBearing = carBearing,
+                    isSatellite = isSatellite,
+                    onToggleSatellite = { isSatellite = !isSatellite },
+                    theme = theme,
+                    finish = finish,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.76f),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    CustomizableCarPlayTile(
-                        config = defaultTiles[0],
-                        customApp = tile0Pkg?.let { appByPkg[it] },
-                        theme = theme,
-                        finish = finish,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            val pkg = tile0Pkg ?: defaultTiles[0].defaultPkg
-                            launchPackage(context, pkg)
-                        },
-                        onLongClick = { customizingSlotKey = defaultTiles[0].slotKey }
-                    )
-                    CustomizableCarPlayTile(
-                        config = defaultTiles[1],
-                        customApp = tile1Pkg?.let { appByPkg[it] },
-                        theme = theme,
-                        finish = finish,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            val pkg = tile1Pkg ?: defaultTiles[1].defaultPkg
-                            launchPackage(context, pkg)
-                        },
-                        onLongClick = { customizingSlotKey = defaultTiles[1].slotKey }
-                    )
-                }
+                        .weight(1.25f)
+                        .fillMaxHeight(),
+                    onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") },
+                    onNavigateQuery = { query -> launchGoogleMapsNavigation(context, query) }
+                )
 
-                // Row 2: Customizable CarPlay Tiles (Long-press to swap app!)
-                Row(
+                // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + LUXURY CHRONOGRAPH WATCH (BOTTOM)
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.76f),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .weight(1.0f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    CustomizableCarPlayTile(
-                        config = defaultTiles[2],
-                        customApp = tile2Pkg?.let { appByPkg[it] },
-                        theme = theme,
-                        finish = finish,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            if (tile2Pkg != null) launchPackage(context, tile2Pkg!!)
-                            else launchSmsApp(context)
+                    OneUiStyleMusicCard(
+                        mediaState = mediaState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1.02f),
+                        onPlayPause = { MediaRepository.togglePlayPause(context) },
+                        onPrev = { MediaRepository.skipPrevious(context) },
+                        onNext = { MediaRepository.skipNext(context) },
+                        onSeekFraction = { frac -> MediaRepository.seekToFraction(context, frac) },
+                        onOpenAccess = {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            }
                         },
-                        onLongClick = { customizingSlotKey = defaultTiles[2].slotKey }
+                        onOpenMusicApp = {
+                            if (mediaState.sourceApp.contains("YT", ignoreCase = true)) {
+                                launchPackage(context, "com.google.android.apps.youtube.music")
+                            } else {
+                                launchPackage(context, "com.spotify.music")
+                            }
+                        }
                     )
-                    CustomizableCarPlayTile(
-                        config = defaultTiles[3],
-                        customApp = tile3Pkg?.let { appByPkg[it] },
+
+                    LuxuryChronographCard(
+                        isWhiteDial = isWhiteWatchDial,
                         theme = theme,
                         finish = finish,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            val pkg = tile3Pkg ?: defaultTiles[3].defaultPkg
-                            launchPackage(context, pkg)
+                        onToggleDial = {
+                            isWhiteWatchDial = !isWhiteWatchDial
+                            prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
                         },
-                        onLongClick = { customizingSlotKey = defaultTiles[3].slotKey }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1.10f)
                     )
                 }
             }
+
+            // 4. SLEEK OEM-STYLE AUTOMOTIVE BOTTOM CONTROL BAR (Inspired by uploaded climate bar)
+            OemAutomotiveControlBar(
+                volumePct = volumePct,
+                isMuted = isMuted,
+                isNightDimmed = isNightDimmed,
+                isSatellite = isSatellite,
+                isWhiteWatchDial = isWhiteWatchDial,
+                theme = theme,
+                onVolDown = {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                    volumePct = readVolumePct()
+                    isMuted = volumePct == 0
+                },
+                onVolUp = {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                    volumePct = readVolumePct()
+                    isMuted = volumePct == 0
+                },
+                onToggleMute = {
+                    val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    if (cur > 0) {
+                        preMuteVolume = cur
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+                    } else {
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, preMuteVolume.coerceAtLeast(3), 0)
+                    }
+                    volumePct = readVolumePct()
+                    isMuted = volumePct == 0
+                },
+                onToggleNightDim = { isNightDimmed = !isNightDimmed },
+                onToggleSatellite = { isSatellite = !isSatellite },
+                onToggleWatchDial = {
+                    isWhiteWatchDial = !isWhiteWatchDial
+                    prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
+                },
+                onOpenApps = { showAppDrawer = true },
+                onOpenSettings = { launchPackage(context, "com.android.settings") },
+                onOpenTheme = { showThemeModal = true }
+            )
         }
 
-        // All Apps Drawer (or Tile Customization Picker when long-pressing a tile)
-        if (showAppDrawer || customizingSlotKey != null) {
-            val isPickingTile = customizingSlotKey != null
+        if (showAppDrawer) {
             AllAppsLuxuryOverlay(
-                title = if (isPickingTile) "Choose App for Tile" else "Applications",
+                title = "Applications",
                 apps = installedApps,
                 theme = theme,
                 finish = finish,
                 onAppClick = { pkg ->
-                    if (isPickingTile) {
-                        val key = customizingSlotKey!!
-                        prefs.edit().putString(key, pkg).apply()
-                        when (key) {
-                            "tile_0_pkg" -> tile0Pkg = pkg
-                            "tile_1_pkg" -> tile1Pkg = pkg
-                            "tile_2_pkg" -> tile2Pkg = pkg
-                            "tile_3_pkg" -> tile3Pkg = pkg
-                        }
-                        customizingSlotKey = null
-                    } else {
-                        showAppDrawer = false
-                        launchPackage(context, pkg)
-                    }
-                },
-                onClose = {
                     showAppDrawer = false
-                    customizingSlotKey = null
-                }
+                    launchPackage(context, pkg)
+                },
+                onClose = { showAppDrawer = false }
             )
         }
 
@@ -406,6 +350,7 @@ fun U5LuxuryCockpit() {
             ThemeStudioOverlay(
                 currentTheme = theme,
                 currentFinish = finish,
+                isWhiteWatchDial = isWhiteWatchDial,
                 onSelectTheme = { selected ->
                     theme = selected
                     prefs.edit().putString("theme_id", selected.id).apply()
@@ -413,6 +358,10 @@ fun U5LuxuryCockpit() {
                 onSelectFinish = { selected ->
                     finish = selected
                     prefs.edit().putString("finish_id", selected.id).apply()
+                },
+                onToggleWatchDial = {
+                    isWhiteWatchDial = !isWhiteWatchDial
+                    prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
                 },
                 onClose = { showThemeModal = false }
             )
@@ -425,6 +374,277 @@ fun U5LuxuryCockpit() {
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.42f))
             )
+        }
+    }
+}
+
+@Composable
+fun OemAutomotiveControlBar(
+    volumePct: Int,
+    isMuted: Boolean,
+    isNightDimmed: Boolean,
+    isSatellite: Boolean,
+    isWhiteWatchDial: Boolean,
+    theme: LuxuryThemeType,
+    onVolDown: () -> Unit,
+    onVolUp: () -> Unit,
+    onToggleMute: () -> Unit,
+    onToggleNightDim: () -> Unit,
+    onToggleSatellite: () -> Unit,
+    onToggleWatchDial: () -> Unit,
+    onOpenApps: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenTheme: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xE824272E), Color(0xF514161B))
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.42f),
+                        Color.White.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.08f)
+                    )
+                ),
+                shape = RoundedCornerShape(18.dp)
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // LEFT CLUSTER: Mute + OEM Blue (-) / Volume Readout / Red (+)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                OemThinAction(
+                    icon = if (isMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                    label = "MUTE",
+                    active = isMuted,
+                    activeColor = Color(0xFFEF4444),
+                    onClick = onToggleMute
+                )
+
+                // Classic Automotive Cool-Blue (-) | Digital Level | Warm-Red (+)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onVolDown() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "−",
+                            color = Color(0xFF4F8FF7),
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Text(
+                        text = if (isMuted) "OFF" else "$volumePct%",
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onVolUp() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+",
+                            color = Color(0xFFE05252),
+                            fontSize = 25.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                OemStatusTextButton(
+                    label = "DIM",
+                    active = isNightDimmed,
+                    activeColor = theme.accentGlow,
+                    onClick = onToggleNightDim
+                )
+            }
+
+            // CENTER ILLUMINATED OEM CAPSULE (Matches the center highlighted module in uploaded bar)
+            Box(
+                modifier = Modifier
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.16f),
+                                Color.White.copy(alpha = 0.05f),
+                                Color.White.copy(alpha = 0.14f)
+                            )
+                        )
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.34f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .clickable { onOpenApps() }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .width(14.dp)
+                            .height(2.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.75f))
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Icon(
+                        imageVector = Icons.Rounded.Apps,
+                        contentDescription = "All Apps",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            // RIGHT CLUSTER: Map Mode (SAT), Watch Dial (DIAL), Theme Studio, Settings
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                OemStatusTextButton(
+                    label = if (isSatellite) "SAT" else "DARK",
+                    active = isSatellite,
+                    activeColor = Color(0xFF38BDF8),
+                    onClick = onToggleSatellite
+                )
+
+                OemStatusTextButton(
+                    label = if (isWhiteWatchDial) "SILVER" else "BLACK",
+                    active = isWhiteWatchDial,
+                    activeColor = Color.White,
+                    onClick = onToggleWatchDial
+                )
+
+                OemThinAction(
+                    icon = Icons.Rounded.Palette,
+                    label = "THEME",
+                    active = false,
+                    activeColor = theme.accent,
+                    onClick = onOpenTheme
+                )
+
+                OemThinAction(
+                    icon = Icons.Rounded.Settings,
+                    label = "SETUP",
+                    active = false,
+                    activeColor = Color.White,
+                    onClick = onOpenSettings
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OemThinAction(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (active) activeColor else Color.White.copy(alpha = 0.80f),
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            repeat(3) {
+                Box(
+                    modifier = Modifier
+                        .width(6.dp)
+                        .height(2.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (active) activeColor else Color.White.copy(alpha = 0.22f)
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OemStatusTextButton(
+    label: String,
+    active: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = label,
+            color = if (active) Color.White else Color.White.copy(alpha = 0.78f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 1.1.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(3) {
+                Box(
+                    modifier = Modifier
+                        .width(8.dp)
+                        .height(2.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (active) activeColor else Color.White.copy(alpha = 0.22f)
+                        )
+                )
+            }
         }
     }
 }
@@ -443,24 +663,23 @@ fun CarPlayLuxuryDock(
 ) {
     Column(
         modifier = Modifier
-            .width(96.dp)
+            .width(86.dp)
             .fillMaxHeight()
-            .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
-            .padding(vertical = 14.dp, horizontal = 10.dp),
+            .luxuryCardSurface(theme, finish, cornerRadius = 26.dp)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Clock + Live GPS Weather Pill
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = time,
                 color = Color.White,
-                fontSize = 23.sp,
+                fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp
             )
             if (weather?.tempC != null) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -469,20 +688,20 @@ fun CarPlayLuxuryDock(
                         imageVector = weather.icon,
                         contentDescription = "Weather",
                         tint = theme.accentGlow,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                     Text(
                         text = "${weather.tempC}°",
                         color = Color.White.copy(alpha = 0.88f),
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             } else {
                 Box(
                     modifier = Modifier
-                        .padding(top = 6.dp)
-                        .width(26.dp)
+                        .padding(top = 5.dp)
+                        .width(24.dp)
                         .height(3.dp)
                         .clip(CircleShape)
                         .background(theme.accent)
@@ -532,10 +751,10 @@ fun CarPlayDockBadge(
 ) {
     Box(
         modifier = Modifier
-            .size(54.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .size(50.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(Brush.linearGradient(gradient))
-            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
@@ -543,80 +762,7 @@ fun CarPlayDockBadge(
             imageVector = icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(28.dp)
-        )
-    }
-}
-
-@Composable
-fun QuickCockpitControlStrip(
-    theme: LuxuryThemeType,
-    finish: ButtonFinish,
-    isNightDimmed: Boolean,
-    onVolDown: () -> Unit,
-    onVolUp: () -> Unit,
-    onToggleNightDim: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .luxuryCardSurface(theme, finish, cornerRadius = 18.dp)
-            .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            QuickStripChip(icon = Icons.Rounded.VolumeDown, label = "Vol -", onClick = onVolDown)
-            QuickStripChip(icon = Icons.Rounded.VolumeUp, label = "Vol +", onClick = onVolUp)
-        }
-
-        QuickStripChip(
-            icon = if (isNightDimmed) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-            label = if (isNightDimmed) "Bright" else "Night Dim",
-            highlighted = isNightDimmed,
-            accent = theme.accent,
-            onClick = onToggleNightDim
-        )
-    }
-}
-
-@Composable
-fun QuickStripChip(
-    icon: ImageVector,
-    label: String,
-    highlighted: Boolean = false,
-    accent: Color = Color(0xFF38BDF8),
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (highlighted) accent.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f))
-            .border(
-                1.dp,
-                if (highlighted) accent else Color.White.copy(alpha = 0.14f),
-                RoundedCornerShape(12.dp)
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = Color.White,
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold
+            modifier = Modifier.size(26.dp)
         )
     }
 }
@@ -627,13 +773,14 @@ fun EmbeddedNavigationMapCard(
     carLon: Double,
     carSpeedKmh: Int,
     carBearing: Float,
+    isSatellite: Boolean,
+    onToggleSatellite: () -> Unit,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     modifier: Modifier = Modifier,
     onOpenGoogleMaps: () -> Unit,
     onNavigateQuery: (String) -> Unit
 ) {
-    var isSatellite by remember { mutableStateOf(false) }
     var zoom by remember { mutableIntStateOf(15) }
     var followCar by remember { mutableStateOf(true) }
     var centerLat by remember { mutableDoubleStateOf(carLat) }
@@ -648,8 +795,8 @@ fun EmbeddedNavigationMapCard(
 
     Box(
         modifier = modifier
-            .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
-            .clip(RoundedCornerShape(28.dp))
+            .luxuryCardSurface(theme, finish, cornerRadius = 26.dp)
+            .clip(RoundedCornerShape(26.dp))
     ) {
         NativeGoogleMapView(
             centerLat = centerLat,
@@ -667,22 +814,22 @@ fun EmbeddedNavigationMapCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top Floating Bar: Google Maps + Sat/Dark + Navigate
+        // Top Floating Bar
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xE011141B))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
                     .clickable { onOpenGoogleMaps() }
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -690,12 +837,12 @@ fun EmbeddedNavigationMapCard(
                     imageVector = Icons.Rounded.Navigation,
                     contentDescription = "Google Maps",
                     tint = Color(0xFF4ADE80),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Text(
                     text = "Google Maps",
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -706,98 +853,96 @@ fun EmbeddedNavigationMapCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xE011141B))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
-                        .clickable { isSatellite = !isSatellite }
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+                        .clickable { onToggleSatellite() }
+                        .padding(horizontal = 11.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = if (isSatellite) "Dark" else "Sat",
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xEB1A73E8))
-                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(18.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
                         .clickable { onOpenGoogleMaps() }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.OpenInFull,
                         contentDescription = "Navigate",
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = "Navigate",
                         color = Color.White,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
 
-        // Bottom-Left: Live GPS Speedometer Pill + 1-Tap Nav Shortcuts (Home, Work, EV Charger)
+        // Bottom-Left: Speedometer Pill + 1-Tap Nav Shortcuts
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Live Speedometer Pill
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xE60B0F17))
-                    .border(1.dp, theme.accent.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .border(1.dp, theme.accent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = "$carSpeedKmh",
                     color = Color.White,
-                    fontSize = 28.sp,
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-1).sp
                 )
                 Text(
                     text = "km/h",
                     color = theme.accentGlow,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
             }
 
-            // 1-Tap Navigation Shortcuts
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 NavShortcutPill(icon = Icons.Rounded.Home, label = "Home") {
                     onNavigateQuery("Home")
                 }
                 NavShortcutPill(icon = Icons.Rounded.Work, label = "Work") {
                     onNavigateQuery("Work")
                 }
-                NavShortcutPill(icon = Icons.Rounded.EvStation, label = "EV Charger", tint = Color(0xFF4ADE80)) {
+                NavShortcutPill(icon = Icons.Rounded.EvStation, label = "EV", tint = Color(0xFF4ADE80)) {
                     onNavigateQuery("EV charging station")
                 }
             }
         }
 
-        // Bottom-Right Floating Map Controls (+, -, Re-center GPS)
+        // Bottom-Right Floating Map Controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MapControlPill(icon = Icons.Rounded.Add) {
@@ -824,24 +969,24 @@ fun NavShortcutPill(
 ) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(Color(0xE011141B))
-            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(14.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
             tint = tint,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(15.dp)
         )
         Text(
             text = label,
             color = Color.White,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -855,10 +1000,10 @@ fun MapControlPill(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(Color(0xE011141B))
-            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(14.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
@@ -866,7 +1011,7 @@ fun MapControlPill(
             imageVector = icon,
             contentDescription = null,
             tint = accent,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -874,7 +1019,6 @@ fun MapControlPill(
 @Composable
 fun OneUiStyleMusicCard(
     mediaState: LiveMediaState,
-    theme: LuxuryThemeType,
     modifier: Modifier = Modifier,
     onPlayPause: () -> Unit,
     onPrev: () -> Unit,
@@ -889,16 +1033,15 @@ fun OneUiStyleMusicCard(
         0f
     }
 
-    // Dynamic album-art dominant color extraction for the glowing wave bar
     val (wavePrimary, waveGlow) = remember(mediaState.albumArt) {
         extractVibrantWaveColors(mediaState.albumArt)
     }
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(28.dp))
+            .clip(RoundedCornerShape(26.dp))
             .background(Color(0xFF141214))
-            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(26.dp))
     ) {
         if (mediaState.albumArt != null) {
             Image(
@@ -926,7 +1069,7 @@ fun OneUiStyleMusicCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -937,7 +1080,7 @@ fun OneUiStyleMusicCard(
                 Text(
                     text = mediaState.sourceApp,
                     color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -950,12 +1093,12 @@ fun OneUiStyleMusicCard(
                             .background(Color(0xFFFF2D20).copy(alpha = 0.25f))
                             .border(1.dp, Color(0xFFFF3B30), RoundedCornerShape(10.dp))
                             .clickable { onOpenAccess() }
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "ENABLE SYNC",
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -965,7 +1108,7 @@ fun OneUiStyleMusicCard(
                         contentDescription = "Audio Output",
                         tint = Color.White.copy(alpha = 0.9f),
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(19.dp)
                             .clickable { onOpenMusicApp() }
                     )
                 }
@@ -982,13 +1125,13 @@ fun OneUiStyleMusicCard(
                     imageVector = Icons.Rounded.PlayCircle,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(19.dp)
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(7.dp))
                 Text(
                     text = "${mediaState.title}  •  ${mediaState.artist}",
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1003,7 +1146,7 @@ fun OneUiStyleMusicCard(
                     waveGlow = waveGlow,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(28.dp),
+                        .height(26.dp),
                     onSeekFraction = onSeekFraction
                 )
                 Row(
@@ -1013,13 +1156,13 @@ fun OneUiStyleMusicCard(
                     Text(
                         text = formatDuration(mediaState.positionMs),
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = formatDuration(mediaState.durationMs),
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1035,28 +1178,28 @@ fun OneUiStyleMusicCard(
                     contentDescription = "Like",
                     tint = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clickable { onOpenMusicApp() }
                 )
 
                 OneUiCircleButton(
                     icon = Icons.Rounded.SkipPrevious,
-                    size = 48.dp,
-                    iconSize = 26.dp,
+                    size = 44.dp,
+                    iconSize = 24.dp,
                     onClick = onPrev
                 )
 
                 OneUiCircleButton(
                     icon = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    size = 54.dp,
-                    iconSize = 30.dp,
+                    size = 50.dp,
+                    iconSize = 28.dp,
                     onClick = onPlayPause
                 )
 
                 OneUiCircleButton(
                     icon = Icons.Rounded.SkipNext,
-                    size = 48.dp,
-                    iconSize = 26.dp,
+                    size = 44.dp,
+                    iconSize = 24.dp,
                     onClick = onNext
                 )
 
@@ -1065,7 +1208,7 @@ fun OneUiStyleMusicCard(
                     contentDescription = "Shuffle",
                     tint = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clickable { onOpenMusicApp() }
                 )
             }
@@ -1094,74 +1237,6 @@ fun OneUiCircleButton(
             tint = Color.White,
             modifier = Modifier.size(iconSize)
         )
-    }
-}
-
-@Composable
-fun CustomizableCarPlayTile(
-    config: DefaultTileConfig,
-    customApp: InstalledApp?,
-    theme: LuxuryThemeType,
-    finish: ButtonFinish,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    Row(
-        modifier = modifier
-            .fillMaxHeight()
-            .luxuryButtonSurface(theme, finish, cornerRadius = 22.dp)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        if (customApp != null) {
-            Image(
-                bitmap = customApp.icon,
-                contentDescription = customApp.label,
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(RoundedCornerShape(14.dp))
-            )
-            Text(
-                text = customApp.label,
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.3).sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.linearGradient(config.defaultGradient))
-                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = config.defaultIcon,
-                    contentDescription = config.defaultTitle,
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            Text(
-                text = config.defaultTitle,
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.3).sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }
 
@@ -1219,14 +1294,14 @@ fun AllAppsLuxuryOverlay(
                             bitmap = app.icon,
                             contentDescription = app.label,
                             modifier = Modifier
-                                .size(58.dp)
+                                .size(56.dp)
                                 .clip(RoundedCornerShape(16.dp))
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = app.label,
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1242,29 +1317,31 @@ fun AllAppsLuxuryOverlay(
 fun ThemeStudioOverlay(
     currentTheme: LuxuryThemeType,
     currentFinish: ButtonFinish,
+    isWhiteWatchDial: Boolean,
     onSelectTheme: (LuxuryThemeType) -> Unit,
     onSelectFinish: (ButtonFinish) -> Unit,
+    onToggleWatchDial: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val installedVersion = remember { LauncherUpdater.getCurrentVersionName(context) }
-    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Long-press any tile to swap apps") }
+    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Tap watch to switch Silver/Black dial") }
     var isUpdating by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xEB07080B))
-            .padding(24.dp),
+            .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.88f)
                 .luxuryCardSurface(currentTheme, currentFinish, cornerRadius = 28.dp)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1274,14 +1351,35 @@ fun ThemeStudioOverlay(
                 Text(
                     text = "Cockpit Theme Studio",
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = 23.sp,
                     fontWeight = FontWeight.Bold
                 )
-                CarPlayDockBadge(
-                    icon = Icons.Rounded.Close,
-                    gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
-                    onClick = onClose
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White.copy(alpha = 0.10f))
+                            .border(1.dp, currentTheme.border, RoundedCornerShape(14.dp))
+                            .clickable { onToggleWatchDial() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = if (isWhiteWatchDial) "Watch: Silver Dial" else "Watch: Black Dial",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    CarPlayDockBadge(
+                        icon = Icons.Rounded.Close,
+                        gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
+                        onClick = onClose
+                    )
+                }
             }
 
             Row(
@@ -1314,7 +1412,7 @@ fun ThemeStudioOverlay(
                         Text(
                             text = t.displayName,
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2
                         )
@@ -1333,13 +1431,13 @@ fun ThemeStudioOverlay(
                             .weight(1f)
                             .luxuryButtonSurface(currentTheme, f, cornerRadius = 16.dp, highlighted = selected)
                             .clickable { onSelectFinish(f) }
-                            .padding(vertical = 14.dp),
+                            .padding(vertical = 13.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = f.displayName,
                             color = if (selected) currentTheme.accentGlow else Color.White,
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1353,7 +1451,7 @@ fun ThemeStudioOverlay(
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color.White.copy(alpha = 0.06f))
                     .border(1.dp, currentTheme.border, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1361,7 +1459,7 @@ fun ThemeStudioOverlay(
                     Text(
                         text = "SOFTWARE UPDATE",
                         color = currentTheme.accentGlow,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.2.sp
                     )
@@ -1369,7 +1467,7 @@ fun ThemeStudioOverlay(
                     Text(
                         text = updateStatus,
                         color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -1395,7 +1493,7 @@ fun ThemeStudioOverlay(
                                 isUpdating = false
                             }
                         }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .padding(horizontal = 18.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1403,12 +1501,12 @@ fun ThemeStudioOverlay(
                         imageVector = Icons.Rounded.SystemUpdate,
                         contentDescription = "Check for Updates",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                     Text(
                         text = if (isUpdating) "Updating..." else "Check for Updates",
                         color = Color.White,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1486,30 +1584,6 @@ fun launchPackage(context: Context, packageName: String) {
     if (intent != null) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
-    }
-}
-
-fun launchSmsApp(context: Context) {
-    val defaultSms = Intent(Intent.ACTION_MAIN).apply {
-        addCategory(Intent.CATEGORY_APP_MESSAGING)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    if (defaultSms.resolveActivity(context.packageManager) != null) {
-        context.startActivity(defaultSms)
-        return
-    }
-    val fallbacks = listOf(
-        "com.google.android.apps.messaging",
-        "com.samsung.android.messaging",
-        "com.android.mms"
-    )
-    for (pkg in fallbacks) {
-        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-        if (intent != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-            return
-        }
     }
 }
 

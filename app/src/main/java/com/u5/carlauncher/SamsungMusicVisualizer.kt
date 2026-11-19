@@ -24,10 +24,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.PI
 import kotlin.math.sin
 
-/**
- * Extracts a vibrant primary + glow color pair from album artwork so the One UI
- * wave progress bar dynamically adapts to every song.
- */
 fun extractVibrantWaveColors(bitmap: Bitmap?): Pair<Color, Color> {
     val defaultPair = Pair(Color(0xFFFF1E00), Color(0xFFFF8A3D))
     if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) return defaultPair
@@ -44,7 +40,6 @@ fun extractVibrantWaveColors(bitmap: Bitmap?): Pair<Color, Color> {
                 AndroidColor.colorToHSV(pixel, hsv)
                 val sat = hsv[1]
                 val value = hsv[2]
-                // Prefer rich, bright colors (skip near-black, near-white, and muddy grays)
                 if (sat > 0.35f && value > 0.35f && value < 0.96f) {
                     val score = sat * 1.4f + value
                     if (score > bestScore) {

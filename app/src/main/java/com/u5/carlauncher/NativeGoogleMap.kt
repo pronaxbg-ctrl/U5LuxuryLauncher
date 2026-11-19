@@ -231,19 +231,19 @@ fun NativeGoogleMapView(
 
             drawCircle(
                 color = Color(0xFF38BDF8).copy(alpha = 0.25f),
-                radius = 32f,
+                radius = 30f,
                 center = markerPos
             )
             rotate(degrees = carBearing, pivot = markerPos) {
                 val arrow = Path().apply {
-                    moveTo(markerPos.x, markerPos.y - 20f)
-                    lineTo(markerPos.x + 15f, markerPos.y + 15f)
-                    lineTo(markerPos.x, markerPos.y + 8f)
-                    lineTo(markerPos.x - 15f, markerPos.y + 15f)
+                    moveTo(markerPos.x, markerPos.y - 18f)
+                    lineTo(markerPos.x + 14f, markerPos.y + 14f)
+                    lineTo(markerPos.x, markerPos.y + 7f)
+                    lineTo(markerPos.x - 14f, markerPos.y + 14f)
                     close()
                 }
                 drawPath(path = arrow, color = Color(0xFF38BDF8))
-                drawPath(path = arrow, color = Color.White, style = Stroke(width = 3.2f))
+                drawPath(path = arrow, color = Color.White, style = Stroke(width = 3.0f))
             }
         }
     }
