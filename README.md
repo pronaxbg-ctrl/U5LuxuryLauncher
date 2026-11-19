@@ -1,5 +1,4 @@
-# U5 Luxury Car Launcher v4 (Live Google Maps Engine + 1-Tap Updater)
+# U5 Luxury Car Launcher v4.1 (100% Native Kotlin Map Engine)
 
-- **Zero-CDN Interactive Google Maps Tile Engine**: Renders crisp Dark Mode Google Maps & Hybrid Satellite directly inside the launcher with zero external script dependencies.
-- **Native Android GPS Tracking**: Feeds live GPS coordinates directly from Android's LocationManager to the glowing blue car marker.
-- **Preserves Fixed Signing Key**: Does not overwrite `app/u5_release.p12`, enabling 1-tap OTA updates from v3.
+- **Zero WebView**: `NativeGoogleMap.kt` downloads Google Maps tiles directly in Kotlin and draws them onto a GPU-accelerated Jetpack Compose Canvas with an in-memory LRU cache.
+- **Dark Mode & Satellite**: Instant toggle between sleek Dark Mode roads and Google Satellite view, plus smooth touch drag-to-pan, zoom (`+`/`-`), and live Android GPS tracking.
