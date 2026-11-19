@@ -1,5 +1,6 @@
 package com.u5.carlauncher
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,6 +9,11 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
+import android.webkit.GeolocationPermissions
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -40,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -92,19 +99,15 @@ fun U5LuxuryCockpit() {
     var showThemeModal by remember { mutableStateOf(false) }
 
     val mediaState by MediaRepository.state.collectAsState()
-    var currentTime by remember { mutableStateOf("12:00") }
-    var currentDate by remember { mutableStateOf("THU • NOV 19") }
+    var currentTime by remember { mutableStateOf("18:10") }
 
-    // Live clock + periodic media session poll
+    // Live 1-second clock + media progress poll
     LaunchedEffect(Unit) {
         val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
-        val dateFmt = SimpleDateFormat("EEE • MMM d", Locale.getDefault())
         while (true) {
-            val now = Date()
-            currentTime = timeFmt.format(now)
-            currentDate = dateFmt.format(now).uppercase(Locale.getDefault())
+            currentTime = timeFmt.format(Date())
             MediaRepository.refreshSessions(context)
-            delay(1500)
+            delay(1000)
         }
     }
 
@@ -119,15 +122,14 @@ fun U5LuxuryCockpit() {
                 )
             )
     ) {
-        // Main 1760x720 Ultrawide Cockpit Row
         Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. LEFT SCULPTED DOCK
-            LuxuryDock(
+            // 1. LEFT CARPLAY-STYLE DOCK
+            CarPlayLuxuryDock(
                 time = currentTime,
                 theme = theme,
                 finish = finish,
@@ -138,71 +140,68 @@ fun U5LuxuryCockpit() {
                 onThemeClick = { showThemeModal = true }
             )
 
-            // 2. CENTER-LEFT SAMSUNG MUSIC WAVE PLAYER
-            SamsungMusicLuxuryCard(
-                mediaState = mediaState,
-                dateLabel = currentDate,
+            // 2. CENTER-LEFT: EMBEDDED LIVE INTERACTIVE MAP CARD
+            EmbeddedNavigationMapCard(
                 theme = theme,
                 finish = finish,
                 modifier = Modifier
                     .weight(1.22f)
                     .fillMaxHeight(),
-                onPlayPause = { MediaRepository.togglePlayPause(context) },
-                onPrev = { MediaRepository.skipPrevious(context) },
-                onNext = { MediaRepository.skipNext(context) },
-                onOpenAccess = {
-                    runCatching {
-                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    }
-                },
-                onOpenMusicApp = {
-                    if (mediaState.sourceApp == "YT MUSIC") {
-                        launchPackage(context, "com.google.android.apps.youtube.music")
-                    } else {
-                        launchPackage(context, "com.spotify.music")
-                    }
-                }
+                onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") }
             )
 
-            // 3. RIGHT LUXURY QUICK-LAUNCH COCKPIT (Maps, Spotify, YT Music, SMS, Settings)
+            // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + CARPLAY 2x2 APPS (BOTTOM)
             Column(
                 modifier = Modifier
                     .weight(1.0f)
                     .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Hero Navigation Tile — Google Maps
-                LuxuryHeroNavTile(
+                // Top-Right: Samsung One UI / Uploaded Screenshot Style Music Card
+                OneUiStyleMusicCard(
+                    mediaState = mediaState,
                     theme = theme,
-                    finish = finish,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1.05f),
-                    onClick = { launchPackage(context, "com.google.android.apps.maps") }
+                        .weight(1.28f),
+                    onPlayPause = { MediaRepository.togglePlayPause(context) },
+                    onPrev = { MediaRepository.skipPrevious(context) },
+                    onNext = { MediaRepository.skipNext(context) },
+                    onSeekFraction = { frac -> MediaRepository.seekToFraction(context, frac) },
+                    onOpenAccess = {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }
+                    },
+                    onOpenMusicApp = {
+                        if (mediaState.sourceApp.contains("YT", ignoreCase = true)) {
+                            launchPackage(context, "com.google.android.apps.youtube.music")
+                        } else {
+                            launchPackage(context, "com.spotify.music")
+                        }
+                    }
                 )
 
-                // Row 1: Spotify & YouTube Music
+                // Bottom-Right Row 1: CarPlay-style Spotify & YT Music
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(0.86f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    LuxuryAppTile(
+                    CarPlayAppTile(
                         title = "Spotify",
-                        subtitle = "STREAMING",
                         icon = Icons.Rounded.GraphicEq,
-                        ledColor = Color(0xFF1DB954),
+                        badgeGradient = listOf(Color(0xFF1ED760), Color(0xFF15803D)),
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
                         onClick = { launchPackage(context, "com.spotify.music") }
                     )
-                    LuxuryAppTile(
+                    CarPlayAppTile(
                         title = "YT Music",
-                        subtitle = "AUDIO",
-                        icon = Icons.Rounded.PlayCircle,
-                        ledColor = Color(0xFFFF3B30),
+                        icon = Icons.Rounded.PlayArrow,
+                        badgeGradient = listOf(Color(0xFFFF3B30), Color(0xFFB91C1C)),
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
@@ -210,28 +209,26 @@ fun U5LuxuryCockpit() {
                     )
                 }
 
-                // Row 2: SMS & Settings
+                // Bottom-Right Row 2: CarPlay-style Messages & Settings
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(0.86f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    LuxuryAppTile(
-                        title = "SMS",
-                        subtitle = "MESSAGES",
-                        icon = Icons.Rounded.Sms,
-                        ledColor = Color(0xFF38BDF8),
+                    CarPlayAppTile(
+                        title = "Messages",
+                        icon = Icons.Rounded.ChatBubble,
+                        badgeGradient = listOf(Color(0xFF34C759), Color(0xFF16A34A)),
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
                         onClick = { launchSmsApp(context) }
                     )
-                    LuxuryAppTile(
+                    CarPlayAppTile(
                         title = "Settings",
-                        subtitle = "SYSTEM",
                         icon = Icons.Rounded.Settings,
-                        ledColor = theme.accent,
+                        badgeGradient = listOf(Color(0xFF8E8E93), Color(0xFF48484A)),
                         theme = theme,
                         finish = finish,
                         modifier = Modifier.weight(1f),
@@ -241,7 +238,7 @@ fun U5LuxuryCockpit() {
             }
         }
 
-        // OVERLAY: ALL APPS DRAWER (Auto-themed luxury bezels)
+        // OVERLAY: ALL APPS DRAWER
         if (showAppDrawer) {
             AllAppsLuxuryOverlay(
                 apps = installedApps,
@@ -255,7 +252,7 @@ fun U5LuxuryCockpit() {
             )
         }
 
-        // OVERLAY: THEME & BUTTON FINISH STUDIO
+        // OVERLAY: THEME STUDIO
         if (showThemeModal) {
             ThemeStudioOverlay(
                 currentTheme = theme,
@@ -275,7 +272,7 @@ fun U5LuxuryCockpit() {
 }
 
 @Composable
-fun LuxuryDock(
+fun CarPlayLuxuryDock(
     time: String,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
@@ -289,238 +286,187 @@ fun LuxuryDock(
         modifier = Modifier
             .width(96.dp)
             .fillMaxHeight()
-            .luxuryCardSurface(theme, finish, cornerRadius = 26.dp)
+            .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
             .padding(vertical = 16.dp, horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Bold Clock
+        // Crisp CarPlay Clock
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = time,
-                color = theme.textPrimary,
+                color = Color.White,
                 fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
             )
             Box(
                 modifier = Modifier
                     .padding(top = 6.dp)
-                    .width(28.dp)
+                    .width(26.dp)
                     .height(3.dp)
                     .clip(CircleShape)
                     .background(theme.accent)
             )
         }
 
-        // Quick Dock Buttons
+        // CarPlay Rounded-Square App Icons
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            DockIconButton(Icons.Rounded.Navigation, theme, finish, onMapsClick)
-            DockIconButton(Icons.Rounded.GraphicEq, theme, finish, onSpotifyClick)
-            DockIconButton(Icons.Rounded.PlayCircle, theme, finish, onYtMusicClick)
-            DockIconButton(Icons.Rounded.Apps, theme, finish, onAppsClick)
+            CarPlayDockBadge(
+                icon = Icons.Rounded.Navigation,
+                gradient = listOf(Color(0xFF34A853), Color(0xFF1A73E8)),
+                onClick = onMapsClick
+            )
+            CarPlayDockBadge(
+                icon = Icons.Rounded.GraphicEq,
+                gradient = listOf(Color(0xFF1ED760), Color(0xFF15803D)),
+                onClick = onSpotifyClick
+            )
+            CarPlayDockBadge(
+                icon = Icons.Rounded.PlayArrow,
+                gradient = listOf(Color(0xFFFF3B30), Color(0xFFB91C1C)),
+                onClick = onYtMusicClick
+            )
+            CarPlayDockBadge(
+                icon = Icons.Rounded.GridView,
+                gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
+                onClick = onAppsClick
+            )
         }
 
-        // Theme Switcher Button
-        DockIconButton(
+        // Theme Switcher
+        CarPlayDockBadge(
             icon = Icons.Rounded.Palette,
-            theme = theme,
-            finish = finish,
-            onClick = onThemeClick,
-            highlighted = true
+            gradient = listOf(theme.accent, theme.accentSecondary),
+            onClick = onThemeClick
         )
     }
 }
 
 @Composable
-fun DockIconButton(
+fun CarPlayDockBadge(
     icon: ImageVector,
-    theme: LuxuryThemeType,
-    finish: ButtonFinish,
-    onClick: () -> Unit,
-    highlighted: Boolean = false
+    gradient: List<Color>,
+    onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(58.dp)
-            .luxuryButtonSurface(theme, finish, cornerRadius = 18.dp, highlighted = highlighted)
+            .size(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brush.linearGradient(gradient))
+            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (highlighted) theme.accentGlow else theme.textPrimary,
-            modifier = Modifier.size(28.dp)
+            tint = Color.White,
+            modifier = Modifier.size(30.dp)
         )
     }
 }
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun SamsungMusicLuxuryCard(
-    mediaState: LiveMediaState,
-    dateLabel: String,
+fun EmbeddedNavigationMapCard(
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     modifier: Modifier = Modifier,
-    onPlayPause: () -> Unit,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onOpenAccess: () -> Unit,
-    onOpenMusicApp: () -> Unit
+    onOpenGoogleMaps: () -> Unit
 ) {
     Box(
         modifier = modifier
             .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
             .clip(RoundedCornerShape(28.dp))
     ) {
-        // Samsung Music Flowing Audio Waves Background
-        SamsungMusicWaveVisualizer(
-            isPlaying = mediaState.isPlaying,
-            theme = theme,
-            modifier = Modifier.fillMaxSize()
+        // Interactive Dark-Mode Map WebView (pan/zoom directly inside the launcher)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.setGeolocationEnabled(true)
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    webViewClient = WebViewClient()
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onGeolocationPermissionsShowPrompt(
+                            origin: String?,
+                            callback: GeolocationPermissions.Callback?
+                        ) {
+                            callback?.invoke(origin, true, false)
+                        }
+                    }
+                    loadDataWithBaseURL(
+                        "https://unpkg.com",
+                        DARK_COCKPIT_MAP_HTML,
+                        "text/html",
+                        "UTF-8",
+                        null
+                    )
+                }
+            }
         )
 
-        Column(
+        // Top Floating CarPlay-style Navigation Pill
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Top Status Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(if (mediaState.isPlaying) theme.accentGlow else theme.textSecondary)
-                    )
-                    Text(
-                        text = "${mediaState.sourceApp}  •  $dateLabel",
-                        color = theme.accentGlow,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp
-                    )
-                }
-
-                if (!mediaState.hasListenerAccess) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(theme.accent.copy(alpha = 0.22f))
-                            .border(1.dp, theme.accent, RoundedCornerShape(12.dp))
-                            .clickable { onOpenAccess() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "ENABLE LIVE SYNC",
-                            color = theme.accentGlow,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-                }
-            }
-
-            // Middle: Album Art + Track Info
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenMusicApp() },
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xD911141B))
+                    .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+                    .clickable { onOpenGoogleMaps() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(116.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(theme.surfaceElevated)
-                        .border(1.5.dp, theme.border, RoundedCornerShape(22.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (mediaState.albumArt != null) {
-                        Image(
-                            bitmap = mediaState.albumArt.asImageBitmap(),
-                            contentDescription = "Album Art",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = null,
-                            tint = theme.accent,
-                            modifier = Modifier.size(52.dp)
-                        )
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = mediaState.title,
-                        color = theme.textPrimary,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 34.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = mediaState.artist,
-                        color = theme.textSecondary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Rounded.Navigation,
+                    contentDescription = "Maps",
+                    tint = Color(0xFF4ADE80),
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(
+                    text = "Google Maps",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
-            // Bottom: Sculpted Luxury Transport Controls
+            // Fullscreen Google Maps Launch Button
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xE61A73E8))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(20.dp))
+                    .clickable { onOpenGoogleMaps() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                TransportButton(
-                    icon = Icons.Rounded.SkipPrevious,
-                    size = 64.dp,
-                    iconSize = 32.dp,
-                    theme = theme,
-                    finish = finish,
-                    highlighted = false,
-                    onClick = onPrev
+                Icon(
+                    imageVector = Icons.Rounded.OpenInFull,
+                    contentDescription = "Open Full Maps",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
                 )
-                TransportButton(
-                    icon = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    size = 78.dp,
-                    iconSize = 40.dp,
-                    theme = theme,
-                    finish = finish,
-                    highlighted = true,
-                    onClick = onPlayPause
-                )
-                TransportButton(
-                    icon = Icons.Rounded.SkipNext,
-                    size = 64.dp,
-                    iconSize = 32.dp,
-                    theme = theme,
-                    finish = finish,
-                    highlighted = false,
-                    onClick = onNext
+                Text(
+                    text = "Navigate",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -528,146 +474,277 @@ fun SamsungMusicLuxuryCard(
 }
 
 @Composable
-fun TransportButton(
+fun OneUiStyleMusicCard(
+    mediaState: LiveMediaState,
+    theme: LuxuryThemeType,
+    modifier: Modifier = Modifier,
+    onPlayPause: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onSeekFraction: (Float) -> Unit,
+    onOpenAccess: () -> Unit,
+    onOpenMusicApp: () -> Unit
+) {
+    val progress = if (mediaState.durationMs > 0L) {
+        (mediaState.positionMs.toFloat() / mediaState.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF141214))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
+    ) {
+        // Full-bleed Album Art Background (matching uploaded Samsung widget)
+        if (mediaState.albumArt != null) {
+            Image(
+                bitmap = mediaState.albumArt.asImageBitmap(),
+                contentDescription = "Album Background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Smooth dark cinematic gradient overlay for high legibility
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xB80A090B),
+                            Color(0xCC0D0A0C),
+                            Color(0xE6080709)
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Top Row: Device/App Name + Audio Output Icon (or Live Sync Prompt)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = mediaState.sourceApp,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (!mediaState.hasListenerAccess) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFFF2D20).copy(alpha = 0.25f))
+                            .border(1.dp, Color(0xFFFF3B30), RoundedCornerShape(10.dp))
+                            .clickable { onOpenAccess() }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "ENABLE SYNC",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Speaker,
+                        contentDescription = "Audio Output",
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { onOpenMusicApp() }
+                    )
+                }
+            }
+
+            // Center Row: Play Badge + "Title • Artist"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenMusicApp() },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayCircle,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${mediaState.title}  •  ${mediaState.artist}",
+                    color = Color.White,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Glowing One UI Wave Progress Bar + Timestamps
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OneUiWaveProgressBar(
+                    progress = progress,
+                    isPlaying = mediaState.isPlaying,
+                    wavePrimary = Color(0xFFFF1E00),
+                    waveGlow = Color(0xFFFF8A3D),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp),
+                    onSeekFraction = onSeekFraction
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = formatDuration(mediaState.positionMs),
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = formatDuration(mediaState.durationMs),
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Bottom Row: Frosted Circular Transport Controls (matching uploaded widget)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ThumbUpOffAlt,
+                    contentDescription = "Like",
+                    tint = Color.White.copy(alpha = 0.88f),
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable { onOpenMusicApp() }
+                )
+
+                OneUiCircleButton(
+                    icon = Icons.Rounded.SkipPrevious,
+                    size = 52.dp,
+                    iconSize = 28.dp,
+                    onClick = onPrev
+                )
+
+                OneUiCircleButton(
+                    icon = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    size = 58.dp,
+                    iconSize = 32.dp,
+                    onClick = onPlayPause
+                )
+
+                OneUiCircleButton(
+                    icon = Icons.Rounded.SkipNext,
+                    size = 52.dp,
+                    iconSize = 28.dp,
+                    onClick = onNext
+                )
+
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = "Shuffle",
+                    tint = Color.White.copy(alpha = 0.88f),
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable { onOpenMusicApp() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OneUiCircleButton(
     icon: ImageVector,
     size: Dp,
     iconSize: Dp,
-    theme: LuxuryThemeType,
-    finish: ButtonFinish,
-    highlighted: Boolean,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .size(size)
-            .luxuryButtonSurface(theme, finish, cornerRadius = size / 2, highlighted = highlighted)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.16f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (highlighted) theme.accentGlow else theme.textPrimary,
+            tint = Color.White,
             modifier = Modifier.size(iconSize)
         )
     }
 }
 
 @Composable
-fun LuxuryHeroNavTile(
-    theme: LuxuryThemeType,
-    finish: ButtonFinish,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .luxuryButtonSurface(theme, finish, cornerRadius = 24.dp, highlighted = true)
-            .clickable { onClick() }
-            .padding(horizontal = 22.dp, vertical = 16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(verticalArrangement = Arrangement.Center) {
-                Text(
-                    text = "NAVIGATION",
-                    color = theme.accentGlow,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Google Maps",
-                    color = theme.textPrimary,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(62.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(theme.accent.copy(alpha = 0.22f))
-                    .border(1.2.dp, theme.accent, RoundedCornerShape(18.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Navigation,
-                    contentDescription = "Google Maps",
-                    tint = theme.accentGlow,
-                    modifier = Modifier.size(34.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun LuxuryAppTile(
+fun CarPlayAppTile(
     title: String,
-    subtitle: String,
     icon: ImageVector,
-    ledColor: Color,
+    badgeGradient: List<Color>,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Box(
+    Row(
         modifier = modifier
             .fillMaxHeight()
-            .luxuryButtonSurface(theme, finish, cornerRadius = 22.dp)
+            .luxuryButtonSurface(theme, finish, cornerRadius = 24.dp)
             .clickable { onClick() }
-            .padding(16.dp)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+        // Glossy iOS/CarPlay Rounded-Square Icon Badge
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Brush.linearGradient(badgeGradient))
+                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = theme.textPrimary,
-                    modifier = Modifier.size(32.dp)
-                )
-                // Micro-LED Accent Bar
-                Box(
-                    modifier = Modifier
-                        .width(24.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(ledColor)
-                )
-            }
-
-            Column {
-                Text(
-                    text = subtitle,
-                    color = theme.textSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.1.sp
-                )
-                Text(
-                    text = title,
-                    color = theme.textPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = Color.White,
+                modifier = Modifier.size(30.dp)
+            )
         }
+
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.3).sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -682,7 +759,7 @@ fun AllAppsLuxuryOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE806070A))
+            .background(Color(0xEB07080B))
             .padding(24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -692,13 +769,16 @@ fun AllAppsLuxuryOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ALL APPLICATIONS",
-                    color = theme.accentGlow,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.6.sp
+                    text = "Applications",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                DockIconButton(Icons.Rounded.Close, theme, finish, onClose, highlighted = true)
+                CarPlayDockBadge(
+                    icon = Icons.Rounded.Close,
+                    gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
+                    onClick = onClose
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -712,7 +792,7 @@ fun AllAppsLuxuryOverlay(
                 items(apps) { app ->
                     Column(
                         modifier = Modifier
-                            .luxuryButtonSurface(theme, finish, cornerRadius = 20.dp)
+                            .luxuryButtonSurface(theme, finish, cornerRadius = 22.dp)
                             .clickable { onAppClick(app.packageName) }
                             .padding(14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -721,15 +801,15 @@ fun AllAppsLuxuryOverlay(
                             bitmap = app.icon,
                             contentDescription = app.label,
                             modifier = Modifier
-                                .size(54.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .size(58.dp)
+                                .clip(RoundedCornerShape(16.dp))
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = app.label,
-                            color = theme.textPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -751,7 +831,7 @@ fun ThemeStudioOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE806070A))
+            .background(Color(0xEB07080B))
             .padding(28.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -768,22 +848,17 @@ fun ThemeStudioOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "COCKPIT THEME STUDIO",
-                    color = currentTheme.accentGlow,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.5.sp
+                    text = "Cockpit Theme Studio",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                DockIconButton(Icons.Rounded.Close, currentTheme, currentFinish, onClose, highlighted = true)
+                CarPlayDockBadge(
+                    icon = Icons.Rounded.Close,
+                    gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
+                    onClick = onClose
+                )
             }
-
-            Text(
-                text = "LUXURY CABIN THEME",
-                color = currentTheme.textSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
-            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -814,7 +889,7 @@ fun ThemeStudioOverlay(
                         )
                         Text(
                             text = t.displayName,
-                            color = t.textPrimary,
+                            color = Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2
@@ -822,14 +897,6 @@ fun ThemeStudioOverlay(
                     }
                 }
             }
-
-            Text(
-                text = "BUTTON FINISH",
-                color = currentTheme.textSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
-            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -847,9 +914,9 @@ fun ThemeStudioOverlay(
                     ) {
                         Text(
                             text = f.displayName,
-                            color = if (selected) currentTheme.accentGlow else currentTheme.textPrimary,
+                            color = if (selected) currentTheme.accentGlow else Color.White,
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -865,21 +932,16 @@ fun Modifier.luxuryCardSurface(
 ): Modifier {
     val shape = RoundedCornerShape(cornerRadius)
     val bgBrush = when (finish) {
-        ButtonFinish.SCULPTED_METAL -> Brush.linearGradient(
-            listOf(theme.surfaceElevated, theme.surface)
-        )
+        ButtonFinish.SCULPTED_METAL -> Brush.linearGradient(listOf(theme.surfaceElevated, theme.surface))
         ButtonFinish.SMOKED_GLASS -> Brush.linearGradient(
-            listOf(theme.surface.copy(alpha = 0.78f), theme.bgTop.copy(alpha = 0.88f))
+            listOf(theme.surface.copy(alpha = 0.82f), theme.bgTop.copy(alpha = 0.90f))
         )
-        ButtonFinish.AMBIENT_EDGE -> Brush.linearGradient(
-            listOf(theme.bgTop, theme.surface)
-        )
+        ButtonFinish.AMBIENT_EDGE -> Brush.linearGradient(listOf(theme.bgTop, theme.surface))
     }
-    val borderWidth = if (finish == ButtonFinish.AMBIENT_EDGE) 1.5.dp else 1.dp
     return this
         .clip(shape)
         .background(bgBrush)
-        .border(borderWidth, theme.border, shape)
+        .border(1.dp, theme.border, shape)
 }
 
 fun Modifier.luxuryButtonSurface(
@@ -890,32 +952,28 @@ fun Modifier.luxuryButtonSurface(
 ): Modifier {
     val shape = RoundedCornerShape(cornerRadius)
     val bgBrush = when (finish) {
-        ButtonFinish.SCULPTED_METAL -> Brush.verticalGradient(
-            listOf(
-                if (highlighted) theme.surfaceElevated else theme.surfaceElevated.copy(alpha = 0.92f),
-                theme.surface
-            )
-        )
+        ButtonFinish.SCULPTED_METAL -> Brush.verticalGradient(listOf(theme.surfaceElevated, theme.surface))
         ButtonFinish.SMOKED_GLASS -> Brush.verticalGradient(
-            listOf(
-                theme.surfaceElevated.copy(alpha = 0.58f),
-                theme.bgTop.copy(alpha = 0.78f)
-            )
+            listOf(theme.surfaceElevated.copy(alpha = 0.68f), theme.bgTop.copy(alpha = 0.84f))
         )
-        ButtonFinish.AMBIENT_EDGE -> Brush.verticalGradient(
-            listOf(theme.surface, theme.bgTop)
-        )
+        ButtonFinish.AMBIENT_EDGE -> Brush.verticalGradient(listOf(theme.surface, theme.bgTop))
     }
     val borderColor = when {
         highlighted -> theme.accentGlow.copy(alpha = 0.85f)
         finish == ButtonFinish.AMBIENT_EDGE -> theme.accent.copy(alpha = 0.65f)
-        else -> theme.border
+        else -> Color.White.copy(alpha = 0.14f)
     }
-    val borderWidth = if (highlighted || finish == ButtonFinish.AMBIENT_EDGE) 1.6.dp else 1.dp
     return this
         .clip(shape)
         .background(bgBrush)
-        .border(borderWidth, borderColor, shape)
+        .border(1.dp, borderColor, shape)
+}
+
+fun formatDuration(ms: Long): String {
+    val totalSec = (ms / 1000L).coerceAtLeast(0L)
+    val min = totalSec / 60L
+    val sec = totalSec % 60L
+    return String.format(Locale.US, "%02d:%02d", min, sec)
 }
 
 fun launchPackage(context: Context, packageName: String) {
@@ -927,7 +985,6 @@ fun launchPackage(context: Context, packageName: String) {
 }
 
 fun launchSmsApp(context: Context) {
-    // 1. Try system default Messaging / SMS app
     val defaultSms = Intent(Intent.ACTION_MAIN).apply {
         addCategory(Intent.CATEGORY_APP_MESSAGING)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -936,7 +993,6 @@ fun launchSmsApp(context: Context) {
         context.startActivity(defaultSms)
         return
     }
-    // 2. Fallback to common SMS packages
     val fallbacks = listOf(
         "com.google.android.apps.messaging",
         "com.samsung.android.messaging",
@@ -979,3 +1035,53 @@ private fun Drawable.toImageBitmap(): ImageBitmap {
     draw(canvas)
     return bitmap.asImageBitmap()
 }
+
+private const val DARK_COCKPIT_MAP_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f141c; }
+  .leaflet-control-attribution { display: none !important; }
+  .leaflet-control-zoom { margin-top: 74px !important; margin-left: 16px !important; border: none !important; }
+  .leaflet-control-zoom a {
+    background: rgba(17, 20, 27, 0.88) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    width: 38px !important; height: 38px !important; line-height: 38px !important;
+    font-size: 20px !important; border-radius: 12px !important; margin-bottom: 6px !important;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+  var map = L.map('map', { zoomControl: true }).setView([55.7093, 9.5357], 14);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd'
+  }).addTo(map);
+
+  var carMarker = L.circleMarker([55.7093, 9.5357], {
+    radius: 9,
+    fillColor: '#38BDF8',
+    color: '#ffffff',
+    weight: 3,
+    opacity: 1,
+    fillOpacity: 1
+  }).addTo(map);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(function(pos) {
+      var latlng = [pos.coords.latitude, pos.coords.longitude];
+      carMarker.setLatLng(latlng);
+      map.panTo(latlng);
+    }, function() {}, { enableHighAccuracy: true });
+  }
+</script>
+</body>
+</html>
+"""

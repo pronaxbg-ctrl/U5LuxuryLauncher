@@ -8,224 +8,177 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.sin
 
 /**
- * Samsung Music-inspired layered flowing audio wave & subtle spectrum visualizer.
- * Reacts smoothly between active playback (energetic multi-harmonic waves) and paused idle state.
+ * Samsung One UI / Media Widget style glowing animated wave progress bar.
+ * Displays a smooth flame-like layered wave along the played portion of the track,
+ * a bright glowing circular thumb, and tap-to-seek support.
  */
 @Composable
-fun SamsungMusicWaveVisualizer(
+fun OneUiWaveProgressBar(
+    progress: Float,
     isPlaying: Boolean,
-    theme: LuxuryThemeType,
-    modifier: Modifier = Modifier
+    wavePrimary: Color,
+    waveGlow: Color,
+    modifier: Modifier = Modifier,
+    onSeekFraction: (Float) -> Unit = {}
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "samsung_wave")
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val infiniteTransition = rememberInfiniteTransition(label = "oneui_wave")
 
-    val phasePrimary by infiniteTransition.animateFloat(
+    val phaseA by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2.0 * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = LinearEasing),
+            animation = tween(durationMillis = 1900, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "phasePrimary"
+        label = "phaseA"
     )
 
-    val phaseSecondary by infiniteTransition.animateFloat(
+    val phaseB by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2.0 * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3400, easing = LinearEasing),
+            animation = tween(durationMillis = 2700, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "phaseSecondary"
-    )
-
-    val phasePulse by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "phasePulse"
+        label = "phaseB"
     )
 
     val energy by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.14f,
-        animationSpec = tween(durationMillis = 600),
-        label = "waveEnergy"
+        targetValue = if (isPlaying) 1.0f else 0.15f,
+        animationSpec = tween(durationMillis = 450),
+        label = "energy"
     )
 
-    Canvas(modifier = modifier) {
+    Canvas(
+        modifier = modifier.pointerInput(Unit) {
+            detectTapGestures { offset ->
+                if (size.width > 0) {
+                    onSeekFraction((offset.x / size.width).coerceIn(0f, 1f))
+                }
+            }
+        }
+    ) {
         val w = size.width
         val h = size.height
-        val centerY = h * 0.56f
+        val trackY = h * 0.68f
+        val thumbX = (w * clampedProgress).coerceIn(10f, (w - 10f).coerceAtLeast(10f))
 
-        // 1. Soft Samsung Music ambient glow behind waves
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    theme.accent.copy(alpha = 0.22f * energy + 0.05f),
-                    theme.accentSecondary.copy(alpha = 0.08f * energy),
-                    Color.Transparent
-                ),
-                center = Offset(w * 0.5f, centerY),
-                radius = w * 0.65f
-            )
+        // 1. Unplayed track (clean translucent white/gray)
+        drawLine(
+            color = Color.White.copy(alpha = 0.28f),
+            start = Offset(0f, trackY),
+            end = Offset(w, trackY),
+            strokeWidth = 7f,
+            cap = StrokeCap.Round
         )
 
-        // 2. Subtle vertical spectrum bars (Samsung Music style center-outward pulse)
-        val barCount = 36
-        val barSpacing = w / barCount
-        val barWidth = (barSpacing * 0.36f).coerceAtLeast(3f)
+        // 2. Layered glowing wave rising above the played track (like Samsung One UI widget)
+        if (thumbX > 18f) {
+            val steps = 48
+            val maxAmp = h * 0.48f * energy
 
-        for (i in 0 until barCount) {
-            val normX = i.toFloat() / (barCount - 1).coerceAtLeast(1)
-            val envelope = sin(normX * PI).toFloat()
-            val harmonic =
-                0.5f * abs(sin(normX * 7.5f + phasePrimary * 1.4f)) +
-                0.35f * abs(sin(normX * 13f - phaseSecondary * 1.8f)) +
-                0.15f * abs(sin(normX * 4f + phasePulse * 2f))
+            val waveFill1 = Path().apply {
+                moveTo(0f, trackY)
+                for (i in 0..steps) {
+                    val t = i.toFloat() / steps
+                    val x = t * thumbX
+                    val envelope = sin(t * PI).toFloat()
+                    val yOffset = (
+                        0.55f * (sin(t * 2.5 * PI + phaseA).toFloat() * 0.5f + 0.5f) +
+                        0.45f * (sin(t * 4.5 * PI - phaseB).toFloat() * 0.5f + 0.5f)
+                    ) * maxAmp * envelope
+                    lineTo(x, trackY - yOffset)
+                }
+                lineTo(thumbX, trackY)
+                close()
+            }
 
-            val barHeight = (h * 0.42f * envelope * harmonic * energy).coerceAtLeast(4f)
-            val x = i * barSpacing + (barSpacing - barWidth) / 2f
-            val topY = centerY - barHeight / 2f
+            val waveFill2 = Path().apply {
+                moveTo(0f, trackY)
+                for (i in 0..steps) {
+                    val t = i.toFloat() / steps
+                    val x = t * thumbX
+                    val envelope = sin(t * PI).toFloat()
+                    val yOffset = (
+                        0.6f * (sin(t * 3.2 * PI - phaseA * 1.2f).toFloat() * 0.5f + 0.5f) +
+                        0.4f * (sin(t * 5.2 * PI + phaseB).toFloat() * 0.5f + 0.5f)
+                    ) * (maxAmp * 0.72f) * envelope
+                    lineTo(x, trackY - yOffset)
+                }
+                lineTo(thumbX, trackY)
+                close()
+            }
 
-            drawRoundRect(
+            drawPath(
+                path = waveFill1,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        theme.accentGlow.copy(alpha = 0.45f * energy + 0.06f),
-                        theme.accent.copy(alpha = 0.20f * energy + 0.04f)
+                        waveGlow.copy(alpha = 0.85f),
+                        wavePrimary.copy(alpha = 0.92f)
                     ),
-                    startY = topY,
-                    endY = topY + barHeight
-                ),
-                topLeft = Offset(x, topY),
-                size = Size(barWidth, barHeight),
-                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                    startY = trackY - maxAmp,
+                    endY = trackY
+                )
+            )
+
+            drawPath(
+                path = waveFill2,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        waveGlow.copy(alpha = 0.75f)
+                    ),
+                    startY = trackY - maxAmp * 0.75f,
+                    endY = trackY
+                )
             )
         }
 
-        // 3. Layered translucent flowing sine-wave ribbons
-        drawWaveRibbon(
-            width = w,
-            height = h,
-            centerY = centerY,
-            amplitude = h * 0.26f * energy,
-            frequency = 2.4f,
-            phase = phasePrimary,
-            secondaryPhase = phasePulse,
-            fillBrush = Brush.verticalGradient(
-                colors = listOf(
-                    theme.accent.copy(alpha = 0.30f * energy + 0.04f),
-                    Color.Transparent
-                ),
-                startY = centerY - h * 0.28f,
-                endY = h
+        // 3. Solid glowing played bar
+        drawLine(
+            brush = Brush.horizontalGradient(
+                colors = listOf(wavePrimary, waveGlow),
+                startX = 0f,
+                endX = thumbX
             ),
-            strokeColor = theme.accentGlow.copy(alpha = 0.85f * energy + 0.15f),
-            strokeWidth = 3.5f
+            start = Offset(0f, trackY),
+            end = Offset(thumbX, trackY),
+            strokeWidth = 8f,
+            cap = StrokeCap.Round
         )
 
-        drawWaveRibbon(
-            width = w,
-            height = h,
-            centerY = centerY + 6f,
-            amplitude = h * 0.19f * energy,
-            frequency = 3.2f,
-            phase = -phaseSecondary * 1.2f,
-            secondaryPhase = phasePrimary,
-            fillBrush = Brush.verticalGradient(
-                colors = listOf(
-                    theme.accentSecondary.copy(alpha = 0.26f * energy + 0.03f),
-                    Color.Transparent
-                ),
-                startY = centerY - h * 0.22f,
-                endY = h
-            ),
-            strokeColor = theme.accent.copy(alpha = 0.70f * energy + 0.12f),
-            strokeWidth = 2.5f
+        // 4. Outer glow + crisp circular thumb (matching uploaded widget)
+        drawCircle(
+            color = wavePrimary.copy(alpha = 0.45f),
+            radius = 18f,
+            center = Offset(thumbX, trackY)
         )
-
-        drawWaveRibbon(
-            width = w,
-            height = h,
-            centerY = centerY - 4f,
-            amplitude = h * 0.14f * energy,
-            frequency = 4.6f,
-            phase = phasePrimary * 1.6f + 1.2f,
-            secondaryPhase = -phaseSecondary,
-            fillBrush = Brush.verticalGradient(
-                colors = listOf(
-                    theme.accentGlow.copy(alpha = 0.16f * energy),
-                    Color.Transparent
-                ),
-                startY = centerY - h * 0.18f,
-                endY = h
-            ),
-            strokeColor = Color.White.copy(alpha = 0.45f * energy + 0.08f),
-            strokeWidth = 1.8f
+        drawCircle(
+            color = wavePrimary,
+            radius = 11f,
+            center = Offset(thumbX, trackY)
+        )
+        drawCircle(
+            color = Color.White,
+            radius = 11f,
+            center = Offset(thumbX, trackY),
+            style = Stroke(width = 3.5f)
         )
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWaveRibbon(
-    width: Float,
-    height: Float,
-    centerY: Float,
-    amplitude: Float,
-    frequency: Float,
-    phase: Float,
-    secondaryPhase: Float,
-    fillBrush: Brush,
-    strokeColor: Color,
-    strokeWidth: Float
-) {
-    val strokePath = Path()
-    val fillPath = Path()
-    val steps = 80
-
-    for (i in 0..steps) {
-        val t = i.toFloat() / steps
-        val x = t * width
-        // Taper edges cleanly to 0 like Samsung Music waves
-        val edgeTaper = sin(t * PI).toFloat()
-        val wave = sin(t * frequency * 2.0 * PI + phase).toFloat() * 0.7f +
-            sin(t * (frequency * 1.7f) * 2.0 * PI + secondaryPhase).toFloat() * 0.3f
-        val y = centerY + wave * amplitude * edgeTaper
-
-        if (i == 0) {
-            strokePath.moveTo(x, y)
-            fillPath.moveTo(x, height)
-            fillPath.lineTo(x, y)
-        } else {
-            strokePath.lineTo(x, y)
-            fillPath.lineTo(x, y)
-        }
-    }
-
-    fillPath.lineTo(width, height)
-    fillPath.close()
-
-    drawPath(path = fillPath, brush = fillBrush)
-    drawPath(
-        path = strokePath,
-        color = strokeColor,
-        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-    )
 }
