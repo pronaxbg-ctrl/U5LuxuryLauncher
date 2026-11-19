@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun U5LuxuryCockpit() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("u5_luxury_prefs", Context.MODE_PRIVATE) }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
@@ -100,15 +101,28 @@ fun U5LuxuryCockpit() {
     var finish by remember {
         mutableStateOf(ButtonFinish.fromId(prefs.getString("finish_id", null)))
     }
+    var showCarWidget by remember {
+        mutableStateOf(prefs.getBoolean("show_car_widget", true))
+    }
     var isWhiteWatchDial by remember {
         mutableStateOf(prefs.getBoolean("watch_white_dial", true))
     }
+    var paintColor by remember {
+        mutableStateOf(U5PaintColor.fromId(prefs.getString("u5_paint_id", null)))
+    }
+    var batteryPct by remember {
+        mutableIntStateOf(prefs.getInt("u5_battery_pct", 92))
+    }
+    var tripKm by remember {
+        mutableFloatStateOf(prefs.getFloat("u5_trip_km", 0f))
+    }
+
     var showAppDrawer by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
+    var show3DCarModal by remember { mutableStateOf(false) }
     var isNightDimmed by remember { mutableStateOf(false) }
     var isSatellite by remember { mutableStateOf(false) }
 
-    // Live audio volume percentage for the OEM bottom bar
     fun readVolumePct(): Int {
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -117,13 +131,15 @@ fun U5LuxuryCockpit() {
 
     var volumePct by remember { mutableIntStateOf(readVolumePct()) }
     var isMuted by remember { mutableStateOf(volumePct == 0) }
-    var preMuteVolume by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(3)) }
+    var preMuteVolume by remember {
+        mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(3))
+    }
 
-    // Shared Live GPS State (Map + Speedometer + Rotating Arrow + Weather)
+    // Shared Live GPS State (Map + Speedometer + Rotating Arrow + Trip Odometer + Weather)
     var carLat by remember { mutableDoubleStateOf(55.7093) }
     var carLon by remember { mutableDoubleStateOf(9.5357) }
     var carSpeedKmh by remember { mutableIntStateOf(0) }
-    var carBearing by remember { mutableFloatStateOf(0f) }
+    var carBearing by remember { mutableFloatStateOf(45f) }
     var liveWeather by remember { mutableStateOf<LiveWeather?>(null) }
 
     DisposableEffect(context) {
@@ -135,8 +151,18 @@ fun U5LuxuryCockpit() {
         ) == PackageManager.PERMISSION_GRANTED
 
         val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        var lastFix: Location? = null
+
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
+                lastFix?.let { prev ->
+                    val distMeters = prev.distanceTo(location)
+                    if (distMeters in 4f..500f) {
+                        tripKm += distMeters / 1000f
+                        prefs.edit().putFloat("u5_trip_km", tripKm).apply()
+                    }
+                }
+                lastFix = location
                 carLat = location.latitude
                 carLon = location.longitude
                 if (location.hasSpeed()) {
@@ -153,6 +179,7 @@ fun U5LuxuryCockpit() {
                 val best = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                     ?: locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
                 if (best != null) {
+                    lastFix = best
                     carLat = best.latitude
                     carLon = best.longitude
                 }
@@ -179,7 +206,7 @@ fun U5LuxuryCockpit() {
     }
 
     val mediaState by MediaRepository.state.collectAsState()
-    var currentTime by remember { mutableStateOf("18:10") }
+    var currentTime by remember { mutableStateOf("20:15") }
 
     LaunchedEffect(Unit) {
         val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -209,7 +236,7 @@ fun U5LuxuryCockpit() {
                 .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // MAIN COCKPIT ROW (Dock + Native Map + Right Stack: Music & Luxury Watch)
+            // MAIN COCKPIT ROW
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -229,7 +256,7 @@ fun U5LuxuryCockpit() {
                     onThemeClick = { showThemeModal = true }
                 )
 
-                // 2. CENTER-LEFT: NATIVE GOOGLE MAPS + SPEEDOMETER + NAV SHORTCUTS
+                // 2. CENTER-LEFT: NATIVE GOOGLE MAPS
                 EmbeddedNavigationMapCard(
                     carLat = carLat,
                     carLon = carLon,
@@ -240,16 +267,16 @@ fun U5LuxuryCockpit() {
                     theme = theme,
                     finish = finish,
                     modifier = Modifier
-                        .weight(1.25f)
+                        .weight(1.22f)
                         .fillMaxHeight(),
                     onOpenGoogleMaps = { launchPackage(context, "com.google.android.apps.maps") },
                     onNavigateQuery = { query -> launchGoogleMapsNavigation(context, query) }
                 )
 
-                // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + LUXURY CHRONOGRAPH WATCH (BOTTOM)
+                // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + AIWAYS U5 VEHICLE CARD / WATCH (BOTTOM)
                 Column(
                     modifier = Modifier
-                        .weight(1.0f)
+                        .weight(1.05f)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -257,7 +284,7 @@ fun U5LuxuryCockpit() {
                         mediaState = mediaState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1.02f),
+                            .weight(0.96f),
                         onPlayPause = { MediaRepository.togglePlayPause(context) },
                         onPrev = { MediaRepository.skipPrevious(context) },
                         onNext = { MediaRepository.skipNext(context) },
@@ -276,28 +303,53 @@ fun U5LuxuryCockpit() {
                         }
                     )
 
-                    LuxuryChronographCard(
-                        isWhiteDial = isWhiteWatchDial,
-                        theme = theme,
-                        finish = finish,
-                        onToggleDial = {
-                            isWhiteWatchDial = !isWhiteWatchDial
-                            prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1.10f)
-                    )
+                    if (showCarWidget) {
+                        AiwaysU5CockpitCard(
+                            carSpeedKmh = carSpeedKmh,
+                            carBearing = carBearing,
+                            tripKm = tripKm,
+                            batteryPct = batteryPct,
+                            paintColor = paintColor,
+                            theme = theme,
+                            finish = finish,
+                            onLongPress3D = { show3DCarModal = true },
+                            onSwitchToWatch = {
+                                showCarWidget = false
+                                prefs.edit().putBoolean("show_car_widget", false).apply()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1.14f)
+                        )
+                    } else {
+                        LuxuryChronographCard(
+                            isWhiteDial = isWhiteWatchDial,
+                            theme = theme,
+                            finish = finish,
+                            onToggleDial = {
+                                isWhiteWatchDial = !isWhiteWatchDial
+                                prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
+                            },
+                            onSwitchToCar = {
+                                showCarWidget = true
+                                prefs.edit().putBoolean("show_car_widget", true).apply()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1.14f)
+                        )
+                    }
                 }
             }
 
-            // 4. SLEEK OEM-STYLE AUTOMOTIVE BOTTOM CONTROL BAR (Inspired by uploaded climate bar)
+            // 4. SLEEK OEM BOTTOM CONTROL BAR (Matching uploaded layout + Live Outside Temperature!)
             OemAutomotiveControlBar(
                 volumePct = volumePct,
                 isMuted = isMuted,
                 isNightDimmed = isNightDimmed,
                 isSatellite = isSatellite,
-                isWhiteWatchDial = isWhiteWatchDial,
+                showCarWidget = showCarWidget,
+                weather = liveWeather,
                 theme = theme,
                 onVolDown = {
                     audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
@@ -321,14 +373,45 @@ fun U5LuxuryCockpit() {
                     isMuted = volumePct == 0
                 },
                 onToggleNightDim = { isNightDimmed = !isNightDimmed },
+                onRefreshWeather = {
+                    scope.launch {
+                        val w = WeatherService.fetchCurrentWeather(carLat, carLon)
+                        if (w != null) liveWeather = w
+                    }
+                },
                 onToggleSatellite = { isSatellite = !isSatellite },
-                onToggleWatchDial = {
-                    isWhiteWatchDial = !isWhiteWatchDial
-                    prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
+                onToggleCarOrWatch = {
+                    showCarWidget = !showCarWidget
+                    prefs.edit().putBoolean("show_car_widget", showCarWidget).apply()
                 },
                 onOpenApps = { showAppDrawer = true },
                 onOpenSettings = { launchPackage(context, "com.android.settings") },
                 onOpenTheme = { showThemeModal = true }
+            )
+        }
+
+        // OVERLAY: PRESS-AND-HOLD 3D AIWAYS U5 VEHICLE INSPECTOR
+        if (show3DCarModal) {
+            AiwaysU53DInspectorOverlay(
+                batteryPct = batteryPct,
+                tripKm = tripKm,
+                carSpeedKmh = carSpeedKmh,
+                paintColor = paintColor,
+                theme = theme,
+                finish = finish,
+                onAdjustBattery = { delta ->
+                    batteryPct = (batteryPct + delta).coerceIn(0, 100)
+                    prefs.edit().putInt("u5_battery_pct", batteryPct).apply()
+                },
+                onResetTrip = {
+                    tripKm = 0f
+                    prefs.edit().putFloat("u5_trip_km", 0f).apply()
+                },
+                onSelectPaint = { selected ->
+                    paintColor = selected
+                    prefs.edit().putString("u5_paint_id", selected.id).apply()
+                },
+                onClose = { show3DCarModal = false }
             )
         }
 
@@ -350,7 +433,7 @@ fun U5LuxuryCockpit() {
             ThemeStudioOverlay(
                 currentTheme = theme,
                 currentFinish = finish,
-                isWhiteWatchDial = isWhiteWatchDial,
+                showCarWidget = showCarWidget,
                 onSelectTheme = { selected ->
                     theme = selected
                     prefs.edit().putString("theme_id", selected.id).apply()
@@ -359,15 +442,14 @@ fun U5LuxuryCockpit() {
                     finish = selected
                     prefs.edit().putString("finish_id", selected.id).apply()
                 },
-                onToggleWatchDial = {
-                    isWhiteWatchDial = !isWhiteWatchDial
-                    prefs.edit().putBoolean("watch_white_dial", isWhiteWatchDial).apply()
+                onToggleCarOrWatch = {
+                    showCarWidget = !showCarWidget
+                    prefs.edit().putBoolean("show_car_widget", showCarWidget).apply()
                 },
                 onClose = { showThemeModal = false }
             )
         }
 
-        // 1-Tap Night Dimming Filter Overlay (non-blocking visual dim for night driving)
         if (isNightDimmed) {
             Box(
                 modifier = Modifier
@@ -384,14 +466,16 @@ fun OemAutomotiveControlBar(
     isMuted: Boolean,
     isNightDimmed: Boolean,
     isSatellite: Boolean,
-    isWhiteWatchDial: Boolean,
+    showCarWidget: Boolean,
+    weather: LiveWeather?,
     theme: LuxuryThemeType,
     onVolDown: () -> Unit,
     onVolUp: () -> Unit,
     onToggleMute: () -> Unit,
     onToggleNightDim: () -> Unit,
+    onRefreshWeather: () -> Unit,
     onToggleSatellite: () -> Unit,
-    onToggleWatchDial: () -> Unit,
+    onToggleCarOrWatch: () -> Unit,
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTheme: () -> Unit
@@ -423,39 +507,38 @@ fun OemAutomotiveControlBar(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 18.dp),
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // LEFT CLUSTER: Mute + OEM Blue (-) / Volume Readout / Red (+)
+            // LEFT CLUSTER: Mute + Blue (-) / Volume % / Red (+) + DIM + Outside Temperature
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(18.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 OemThinAction(
                     icon = if (isMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
-                    label = "MUTE",
+                    label = "",
                     active = isMuted,
                     activeColor = Color(0xFFEF4444),
                     onClick = onToggleMute
                 )
 
-                // Classic Automotive Cool-Blue (-) | Digital Level | Warm-Red (+)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onVolDown() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "−",
                             color = Color(0xFF4F8FF7),
-                            fontSize = 26.sp,
+                            fontSize = 25.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -463,22 +546,22 @@ fun OemAutomotiveControlBar(
                     Text(
                         text = if (isMuted) "OFF" else "$volumePct%",
                         color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.8.sp
                     )
 
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onVolUp() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "+",
                             color = Color(0xFFE05252),
-                            fontSize = 25.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -490,9 +573,34 @@ fun OemAutomotiveControlBar(
                     activeColor = theme.accentGlow,
                     onClick = onToggleNightDim
                 )
+
+                // ADDED LIVE TEMPERATURE DISPLAY (Outside Temp from GPS Weather)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                        .clickable { onRefreshWeather() }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = weather?.icon ?: Icons.Rounded.Thermostat,
+                        contentDescription = "Outside Temperature",
+                        tint = theme.accentGlow,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = if (weather?.tempC != null) "${weather.tempC}°C" else "--°C",
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
-            // CENTER ILLUMINATED OEM CAPSULE (Matches the center highlighted module in uploaded bar)
+            // CENTER ILLUMINATED OEM CAPSULE (All Apps)
             Box(
                 modifier = Modifier
                     .height(44.dp)
@@ -506,11 +614,7 @@ fun OemAutomotiveControlBar(
                             )
                         )
                     )
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.34f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.34f), RoundedCornerShape(12.dp))
                     .clickable { onOpenApps() }
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
@@ -533,10 +637,10 @@ fun OemAutomotiveControlBar(
                 }
             }
 
-            // RIGHT CLUSTER: Map Mode (SAT), Watch Dial (DIAL), Theme Studio, Settings
+            // RIGHT CLUSTER: DARK/SAT + U5/WATCH + AMBIENT + SETTINGS (Matching uploaded bottom bar)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 OemStatusTextButton(
                     label = if (isSatellite) "SAT" else "DARK",
@@ -546,15 +650,15 @@ fun OemAutomotiveControlBar(
                 )
 
                 OemStatusTextButton(
-                    label = if (isWhiteWatchDial) "SILVER" else "BLACK",
-                    active = isWhiteWatchDial,
-                    activeColor = Color.White,
-                    onClick = onToggleWatchDial
+                    label = if (showCarWidget) "U5" else "WATCH",
+                    active = showCarWidget,
+                    activeColor = theme.accentGlow,
+                    onClick = onToggleCarOrWatch
                 )
 
                 OemThinAction(
-                    icon = Icons.Rounded.Palette,
-                    label = "THEME",
+                    icon = Icons.Rounded.LightMode,
+                    label = "AMBIENT",
                     active = false,
                     activeColor = theme.accent,
                     onClick = onOpenTheme
@@ -562,7 +666,7 @@ fun OemAutomotiveControlBar(
 
                 OemThinAction(
                     icon = Icons.Rounded.Settings,
-                    label = "SETUP",
+                    label = "SETTINGS",
                     active = false,
                     activeColor = Color.White,
                     onClick = onOpenSettings
@@ -584,28 +688,37 @@ fun OemThinAction(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (active) activeColor else Color.White.copy(alpha = 0.80f),
-            modifier = Modifier.size(20.dp)
+            tint = if (active) activeColor else Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(19.dp)
         )
-        Spacer(modifier = Modifier.height(3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            repeat(3) {
-                Box(
-                    modifier = Modifier
-                        .width(6.dp)
-                        .height(2.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (active) activeColor else Color.White.copy(alpha = 0.22f)
-                        )
-                )
+        if (label.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.6.sp
+            )
+        } else {
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(2.dp)
+                            .clip(CircleShape)
+                            .background(if (active) activeColor else Color.White.copy(alpha = 0.25f))
+                    )
+                }
             }
         }
     }
@@ -622,27 +735,25 @@ fun OemStatusTextButton(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = label,
-            color = if (active) Color.White else Color.White.copy(alpha = 0.78f),
-            fontSize = 15.sp,
+            color = if (active) Color.White else Color.White.copy(alpha = 0.80f),
+            fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            letterSpacing = 1.1.sp
+            letterSpacing = 1.0.sp
         )
         Spacer(modifier = Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             repeat(3) {
                 Box(
                     modifier = Modifier
-                        .width(8.dp)
+                        .width(7.dp)
                         .height(2.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (active) activeColor else Color.White.copy(alpha = 0.22f)
-                        )
+                        .background(if (active) activeColor else Color.White.copy(alpha = 0.24f))
                 )
             }
         }
@@ -814,7 +925,6 @@ fun EmbeddedNavigationMapCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top Floating Bar
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -893,7 +1003,6 @@ fun EmbeddedNavigationMapCard(
             }
         }
 
-        // Bottom-Left: Speedometer Pill + 1-Tap Nav Shortcuts
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -938,7 +1047,6 @@ fun EmbeddedNavigationMapCard(
             }
         }
 
-        // Bottom-Right Floating Map Controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -1057,11 +1165,7 @@ fun OneUiStyleMusicCard(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xB80A090B),
-                            Color(0xCC0D0A0C),
-                            Color(0xE6080709)
-                        )
+                        colors = listOf(Color(0xB80A090B), Color(0xCC0D0A0C), Color(0xE6080709))
                     )
                 )
         )
@@ -1182,26 +1286,14 @@ fun OneUiStyleMusicCard(
                         .clickable { onOpenMusicApp() }
                 )
 
-                OneUiCircleButton(
-                    icon = Icons.Rounded.SkipPrevious,
-                    size = 44.dp,
-                    iconSize = 24.dp,
-                    onClick = onPrev
-                )
-
+                OneUiCircleButton(icon = Icons.Rounded.SkipPrevious, size = 44.dp, iconSize = 24.dp, onClick = onPrev)
                 OneUiCircleButton(
                     icon = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     size = 50.dp,
                     iconSize = 28.dp,
                     onClick = onPlayPause
                 )
-
-                OneUiCircleButton(
-                    icon = Icons.Rounded.SkipNext,
-                    size = 44.dp,
-                    iconSize = 24.dp,
-                    onClick = onNext
-                )
+                OneUiCircleButton(icon = Icons.Rounded.SkipNext, size = 44.dp, iconSize = 24.dp, onClick = onNext)
 
                 Icon(
                     imageVector = Icons.Rounded.Shuffle,
@@ -1317,16 +1409,16 @@ fun AllAppsLuxuryOverlay(
 fun ThemeStudioOverlay(
     currentTheme: LuxuryThemeType,
     currentFinish: ButtonFinish,
-    isWhiteWatchDial: Boolean,
+    showCarWidget: Boolean,
     onSelectTheme: (LuxuryThemeType) -> Unit,
     onSelectFinish: (ButtonFinish) -> Unit,
-    onToggleWatchDial: () -> Unit,
+    onToggleCarOrWatch: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val installedVersion = remember { LauncherUpdater.getCurrentVersionName(context) }
-    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Tap watch to switch Silver/Black dial") }
+    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Hold Aiways U5 card for 3D view") }
     var isUpdating by remember { mutableStateOf(false) }
 
     Box(
@@ -1363,11 +1455,11 @@ fun ThemeStudioOverlay(
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color.White.copy(alpha = 0.10f))
                             .border(1.dp, currentTheme.border, RoundedCornerShape(14.dp))
-                            .clickable { onToggleWatchDial() }
+                            .clickable { onToggleCarOrWatch() }
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = if (isWhiteWatchDial) "Watch: Silver Dial" else "Watch: Black Dial",
+                            text = if (showCarWidget) "Widget: Aiways U5" else "Widget: Watch",
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
@@ -1444,7 +1536,6 @@ fun ThemeStudioOverlay(
                 }
             }
 
-            // 1-Tap Built-In OTA Updater Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1479,11 +1570,7 @@ fun ThemeStudioOverlay(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(currentTheme.accent, currentTheme.accentSecondary)
-                            )
-                        )
+                        .background(Brush.horizontalGradient(listOf(currentTheme.accent, currentTheme.accentSecondary)))
                         .clickable(enabled = !isUpdating) {
                             isUpdating = true
                             scope.launch {

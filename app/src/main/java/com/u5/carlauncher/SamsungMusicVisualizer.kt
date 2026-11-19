@@ -25,13 +25,13 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 fun extractVibrantWaveColors(bitmap: Bitmap?): Pair<Color, Color> {
-    val defaultPair = Pair(Color(0xFFFF1E00), Color(0xFFFF8A3D))
+    val defaultPair = Pair(Color(0xFF00D2FF), Color(0xFF80F2FF))
     if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) return defaultPair
 
     return try {
         val scaled = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
         var bestScore = -1f
-        var bestColor = AndroidColor.rgb(255, 30, 0)
+        var bestColor = AndroidColor.rgb(0, 210, 255)
         val hsv = FloatArray(3)
 
         for (y in 0 until scaled.height step 2) {
@@ -165,10 +165,7 @@ fun OneUiWaveProgressBar(
             drawPath(
                 path = waveFill1,
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        waveGlow.copy(alpha = 0.85f),
-                        wavePrimary.copy(alpha = 0.92f)
-                    ),
+                    colors = listOf(waveGlow.copy(alpha = 0.85f), wavePrimary.copy(alpha = 0.92f)),
                     startY = trackY - maxAmp,
                     endY = trackY
                 )
@@ -177,10 +174,7 @@ fun OneUiWaveProgressBar(
             drawPath(
                 path = waveFill2,
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.55f),
-                        waveGlow.copy(alpha = 0.75f)
-                    ),
+                    colors = listOf(Color.White.copy(alpha = 0.55f), waveGlow.copy(alpha = 0.75f)),
                     startY = trackY - maxAmp * 0.75f,
                     endY = trackY
                 )
@@ -188,32 +182,15 @@ fun OneUiWaveProgressBar(
         }
 
         drawLine(
-            brush = Brush.horizontalGradient(
-                colors = listOf(wavePrimary, waveGlow),
-                startX = 0f,
-                endX = thumbX
-            ),
+            brush = Brush.horizontalGradient(colors = listOf(wavePrimary, waveGlow), startX = 0f, endX = thumbX),
             start = Offset(0f, trackY),
             end = Offset(thumbX, trackY),
             strokeWidth = 8f,
             cap = StrokeCap.Round
         )
 
-        drawCircle(
-            color = wavePrimary.copy(alpha = 0.45f),
-            radius = 18f,
-            center = Offset(thumbX, trackY)
-        )
-        drawCircle(
-            color = wavePrimary,
-            radius = 11f,
-            center = Offset(thumbX, trackY)
-        )
-        drawCircle(
-            color = Color.White,
-            radius = 11f,
-            center = Offset(thumbX, trackY),
-            style = Stroke(width = 3.5f)
-        )
+        drawCircle(color = wavePrimary.copy(alpha = 0.45f), radius = 18f, center = Offset(thumbX, trackY))
+        drawCircle(color = wavePrimary, radius = 11f, center = Offset(thumbX, trackY))
+        drawCircle(color = Color.White, radius = 11f, center = Offset(thumbX, trackY), style = Stroke(width = 3.5f))
     }
 }

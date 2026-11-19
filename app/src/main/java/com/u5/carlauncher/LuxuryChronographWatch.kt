@@ -39,11 +39,11 @@ fun LuxuryChronographCard(
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     onToggleDial: () -> Unit,
+    onSwitchToCar: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // Smooth mechanical sweep (10 updates per second)
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
@@ -65,21 +65,16 @@ fun LuxuryChronographCard(
             .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Subtle ambient radial glow behind the watch case
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(
-                            theme.accent.copy(alpha = 0.14f),
-                            Color.Transparent
-                        )
+                        colors = listOf(theme.accent.copy(alpha = 0.14f), Color.Transparent)
                     )
                 )
         )
 
-        // Top-left subtle date stamp
         Text(
             text = dateLabel,
             color = Color.White.copy(alpha = 0.55f),
@@ -91,7 +86,6 @@ fun LuxuryChronographCard(
                 .padding(start = 6.dp, top = 4.dp)
         )
 
-        // Top-right dial style pill (tap anywhere on watch to switch White / Dark dial)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -99,18 +93,18 @@ fun LuxuryChronographCard(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White.copy(alpha = 0.08f))
                 .border(0.8.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+                .clickable { onSwitchToCar() }
                 .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
             Text(
-                text = if (isWhiteDial) "SILVER" else "OBSIDIAN",
-                color = Color.White.copy(alpha = 0.72f),
+                text = "AIWAYS U5",
+                color = theme.accentGlow,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.9.sp
             )
         }
 
-        // High-precision Chronograph Canvas (always perfectly circular & centered)
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -128,15 +122,9 @@ fun LuxuryChronographCard(
             val handLume = if (isWhiteDial) Color(0xFFFFFFFF) else Color(0xFFE0F2FE)
             val accentRed = Color(0xFFDC2626)
 
-            // 1. Brushed Stainless Steel Outer Case Ring
             drawCircle(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFE2E8F0),
-                        Color(0xFF64748B),
-                        Color(0xFFF1F5F9),
-                        Color(0xFF475569)
-                    ),
+                    colors = listOf(Color(0xFFE2E8F0), Color(0xFF64748B), Color(0xFFF1F5F9), Color(0xFF475569)),
                     start = Offset(center.x - radius, center.y - radius),
                     end = Offset(center.x + radius, center.y + radius)
                 ),
@@ -144,7 +132,6 @@ fun LuxuryChronographCard(
                 center = center
             )
 
-            // 2. Black Tachymeter Bezel Ring (like Speedmaster)
             val bezelOuter = radius * 0.955f
             val dialRadius = radius * 0.815f
             drawCircle(
@@ -157,7 +144,6 @@ fun LuxuryChronographCard(
                 center = center
             )
 
-            // Tachymeter tick dots around bezel
             val bezelMid = (bezelOuter + dialRadius) / 2f
             for (i in 0 until 60) {
                 if (i % 5 == 0 || i == 1 || i == 2 || i == 3) {
@@ -174,15 +160,7 @@ fun LuxuryChronographCard(
                 }
             }
 
-            // Inner metallic bezel lip
-            drawCircle(
-                color = Color(0xFF94A3B8),
-                radius = dialRadius + 1.5f,
-                center = center,
-                style = Stroke(width = 2.5f)
-            )
-
-            // 3. Main Watch Dial Face
+            drawCircle(color = Color(0xFF94A3B8), radius = dialRadius + 1.5f, center = center, style = Stroke(width = 2.5f))
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(dialBg, dialBgEdge),
@@ -193,7 +171,6 @@ fun LuxuryChronographCard(
                 center = center
             )
 
-            // 4. Fine 60-second Chapter Track & 12 Baton Hour Indices
             for (i in 0 until 60) {
                 val angleRad = (i * 6.0 - 90.0) * PI / 180.0
                 val isHour = i % 5 == 0
@@ -201,30 +178,17 @@ fun LuxuryChronographCard(
                 val innerR = if (isHour) dialRadius * 0.78f else dialRadius * 0.88f
 
                 if (i == 0) {
-                    // Iconic 12 o'clock double-dot baton marker
                     val perpX = -sin(angleRad).toFloat()
                     val perpY = cos(angleRad).toFloat()
                     val sep = radius * 0.032f
                     for (sign in listOf(-1f, 1f)) {
-                        val s = Offset(
-                            center.x + (cos(angleRad) * innerR).toFloat() + perpX * sep * sign,
-                            center.y + (sin(angleRad) * innerR).toFloat() + perpY * sep * sign
-                        )
-                        val e = Offset(
-                            center.x + (cos(angleRad) * outerR).toFloat() + perpX * sep * sign,
-                            center.y + (sin(angleRad) * outerR).toFloat() + perpY * sep * sign
-                        )
+                        val s = Offset(center.x + (cos(angleRad) * innerR).toFloat() + perpX * sep * sign, center.y + (sin(angleRad) * innerR).toFloat() + perpY * sep * sign)
+                        val e = Offset(center.x + (cos(angleRad) * outerR).toFloat() + perpX * sep * sign, center.y + (sin(angleRad) * outerR).toFloat() + perpY * sep * sign)
                         drawLine(indexColor, s, e, strokeWidth = radius * 0.026f, cap = StrokeCap.Round)
                     }
                 } else {
-                    val start = Offset(
-                        center.x + (cos(angleRad) * innerR).toFloat(),
-                        center.y + (sin(angleRad) * innerR).toFloat()
-                    )
-                    val end = Offset(
-                        center.x + (cos(angleRad) * outerR).toFloat(),
-                        center.y + (sin(angleRad) * outerR).toFloat()
-                    )
+                    val start = Offset(center.x + (cos(angleRad) * innerR).toFloat(), center.y + (sin(angleRad) * innerR).toFloat())
+                    val end = Offset(center.x + (cos(angleRad) * outerR).toFloat(), center.y + (sin(angleRad) * outerR).toFloat())
                     drawLine(
                         color = if (isHour) indexColor else minorTickColor.copy(alpha = 0.75f),
                         start = start,
@@ -235,7 +199,6 @@ fun LuxuryChronographCard(
                 }
             }
 
-            // 5. Classy Dial Branding ("U5" + "CHRONOGRAPH")
             val brandPaint = Paint().apply {
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
@@ -252,20 +215,9 @@ fun LuxuryChronographCard(
                 typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
                 letterSpacing = 0.22f
             }
-            drawContext.canvas.nativeCanvas.drawText(
-                "U5",
-                center.x,
-                center.y - dialRadius * 0.36f,
-                brandPaint
-            )
-            drawContext.canvas.nativeCanvas.drawText(
-                "CHRONOGRAPH",
-                center.x,
-                center.y - dialRadius * 0.24f,
-                subBrandPaint
-            )
+            drawContext.canvas.nativeCanvas.drawText("U5", center.x, center.y - dialRadius * 0.36f, brandPaint)
+            drawContext.canvas.nativeCanvas.drawText("CHRONOGRAPH", center.x, center.y - dialRadius * 0.24f, subBrandPaint)
 
-            // Time calculations
             val hour24 = calendar.get(Calendar.HOUR_OF_DAY)
             val hour12 = calendar.get(Calendar.HOUR)
             val minute = calendar.get(Calendar.MINUTE)
@@ -278,39 +230,12 @@ fun LuxuryChronographCard(
             val hourAngle = (hour12 + minute / 60f) * 30f
             val hour24Angle = (hour24 + minute / 60f) * 15f
 
-            // 6. Three Recessed Chronograph Subdials (3, 6, 9 o'clock)
             val subR = dialRadius * 0.225f
             val subOffset = dialRadius * 0.42f
+            drawChronoSubdial(Offset(center.x - subOffset, center.y), subR, subDialBg, minorTickColor, indexColor, secAngle)
+            drawChronoSubdial(Offset(center.x + subOffset, center.y), subR, subDialBg, minorTickColor, indexColor, hour24Angle)
+            drawChronoSubdial(Offset(center.x, center.y + subOffset), subR, subDialBg, minorTickColor, accentRed, minAngle)
 
-            // 9 o'clock: Running Seconds
-            drawChronoSubdial(
-                subCenter = Offset(center.x - subOffset, center.y),
-                subRadius = subR,
-                bg = subDialBg,
-                ringColor = minorTickColor,
-                handColor = indexColor,
-                angleDeg = secAngle
-            )
-            // 3 o'clock: 24-Hour Indicator
-            drawChronoSubdial(
-                subCenter = Offset(center.x + subOffset, center.y),
-                subRadius = subR,
-                bg = subDialBg,
-                ringColor = minorTickColor,
-                handColor = indexColor,
-                angleDeg = hour24Angle
-            )
-            // 6 o'clock: Minute Counter
-            drawChronoSubdial(
-                subCenter = Offset(center.x, center.y + subOffset),
-                subRadius = subR,
-                bg = subDialBg,
-                ringColor = minorTickColor,
-                handColor = accentRed,
-                angleDeg = minAngle
-            )
-
-            // 7. Tapered Luminous Hour Hand
             rotate(degrees = hourAngle, pivot = center) {
                 val hourPath = Path().apply {
                     moveTo(center.x, center.y - dialRadius * 0.52f)
@@ -321,16 +246,9 @@ fun LuxuryChronographCard(
                     close()
                 }
                 drawPath(hourPath, color = handColor)
-                drawLine(
-                    color = handLume.copy(alpha = 0.9f),
-                    start = Offset(center.x, center.y - dialRadius * 0.43f),
-                    end = Offset(center.x, center.y - dialRadius * 0.14f),
-                    strokeWidth = radius * 0.020f,
-                    cap = StrokeCap.Round
-                )
+                drawLine(handLume.copy(alpha = 0.9f), Offset(center.x, center.y - dialRadius * 0.43f), Offset(center.x, center.y - dialRadius * 0.14f), strokeWidth = radius * 0.020f, cap = StrokeCap.Round)
             }
 
-            // 8. Tapered Luminous Minute Hand
             rotate(degrees = minAngle, pivot = center) {
                 val minPath = Path().apply {
                     moveTo(center.x, center.y - dialRadius * 0.78f)
@@ -341,49 +259,16 @@ fun LuxuryChronographCard(
                     close()
                 }
                 drawPath(minPath, color = handColor)
-                drawLine(
-                    color = handLume.copy(alpha = 0.9f),
-                    start = Offset(center.x, center.y - dialRadius * 0.66f),
-                    end = Offset(center.x, center.y - dialRadius * 0.16f),
-                    strokeWidth = radius * 0.015f,
-                    cap = StrokeCap.Round
-                )
+                drawLine(handLume.copy(alpha = 0.9f), Offset(center.x, center.y - dialRadius * 0.66f), Offset(center.x, center.y - dialRadius * 0.16f), strokeWidth = radius * 0.015f, cap = StrokeCap.Round)
             }
 
-            // 9. Sweeping Chronograph Second Hand (Crimson Tip + Counterweight)
             rotate(degrees = secAngle, pivot = center) {
-                drawLine(
-                    color = accentRed,
-                    start = Offset(center.x, center.y + dialRadius * 0.22f),
-                    end = Offset(center.x, center.y - dialRadius * 0.84f),
-                    strokeWidth = radius * 0.014f,
-                    cap = StrokeCap.Round
-                )
-                drawCircle(
-                    color = accentRed,
-                    radius = radius * 0.026f,
-                    center = Offset(center.x, center.y + dialRadius * 0.18f)
-                )
+                drawLine(accentRed, Offset(center.x, center.y + dialRadius * 0.22f), Offset(center.x, center.y - dialRadius * 0.84f), strokeWidth = radius * 0.014f, cap = StrokeCap.Round)
+                drawCircle(accentRed, radius = radius * 0.026f, center = Offset(center.x, center.y + dialRadius * 0.18f))
             }
 
-            // 10. Center Pinion Cap
             drawCircle(color = handColor, radius = radius * 0.048f, center = center)
             drawCircle(color = Color(0xFFE2E8F0), radius = radius * 0.020f, center = center)
-
-            // 11. Subtle Sapphire Crystal Sheen
-            drawCircle(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (isWhiteDial) 0.22f else 0.12f),
-                        Color.Transparent,
-                        Color.Transparent
-                    ),
-                    start = Offset(center.x - dialRadius, center.y - dialRadius),
-                    end = Offset(center.x + dialRadius * 0.4f, center.y + dialRadius * 0.4f)
-                ),
-                radius = dialRadius,
-                center = center
-            )
         }
     }
 }
@@ -397,12 +282,7 @@ private fun DrawScope.drawChronoSubdial(
     angleDeg: Float
 ) {
     drawCircle(color = bg, radius = subRadius, center = subCenter)
-    drawCircle(
-        color = ringColor.copy(alpha = 0.45f),
-        radius = subRadius,
-        center = subCenter,
-        style = Stroke(width = 1.6f)
-    )
+    drawCircle(color = ringColor.copy(alpha = 0.45f), radius = subRadius, center = subCenter, style = Stroke(width = 1.6f))
     for (i in 0 until 12) {
         val a = (i * 30.0 - 90.0) * PI / 180.0
         val major = i % 3 == 0
@@ -417,13 +297,7 @@ private fun DrawScope.drawChronoSubdial(
         )
     }
     rotate(degrees = angleDeg, pivot = subCenter) {
-        drawLine(
-            color = handColor,
-            start = Offset(subCenter.x, subCenter.y + subRadius * 0.18f),
-            end = Offset(subCenter.x, subCenter.y - subRadius * 0.76f),
-            strokeWidth = 2.4f,
-            cap = StrokeCap.Round
-        )
+        drawLine(handColor, Offset(subCenter.x, subCenter.y + subRadius * 0.18f), Offset(subCenter.x, subCenter.y - subRadius * 0.76f), strokeWidth = 2.4f, cap = StrokeCap.Round)
     }
     drawCircle(color = handColor, radius = subRadius * 0.13f, center = subCenter)
 }

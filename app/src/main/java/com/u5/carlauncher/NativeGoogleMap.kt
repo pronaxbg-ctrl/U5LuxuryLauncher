@@ -225,7 +225,6 @@ fun NativeGoogleMapView(
                 }
             }
 
-            // Rotating CarPlay-style Directional Navigation Arrow
             val (carX, carY) = latLonToWorldPx(carLat, carLon, zoom)
             val markerPos = Offset((carX - topLeftX).toFloat(), (carY - topLeftY).toFloat())
 
