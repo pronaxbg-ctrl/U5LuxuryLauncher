@@ -1,5 +1,4 @@
-# U5 Luxury Car Launcher v4.4 (Aiways U5 3D Cockpit Edition)
+# U5 Luxury Car Launcher v4.5 (Realistic Studio Aiways U5 Edition)
 
-- **Aiways U5 Vehicle Telemetry Card (`AiwaysU5VehicleCard.kt`)**: Custom 3D Aiways U5 electric SUV on a glowing showroom grid, flanked by live GPS Speed, Compass Heading, GPS Trip Odometer, Battery Ring, Est. Range, and Tire Pressure (`2.5 BAR`).
-- **Press-and-Hold 3D Inspector**: Long-press the Aiways U5 card to pop up an interactive 360° rotatable 3D Aiways U5 with paint color switching, battery/trip sync, and verified 2021 Aiways U5 technical specs.
-- **OEM Bottom Control Bar + Live Temperature**: Volume `−` / `%` / `+`, Mute, `DIM`, live outside temperature (`°C`), center Apps capsule, `DARK`/`SAT`, `U5`/`WATCH`, `AMBIENT`, and `SETTINGS`.
+- **Realistic Studio Aiways U5 Renders**: Background-removed transparent PNGs of the real Aiways U5 in **Electric Blue** (default), **Glacier White**, and **Titanium Grey**, placed on an illuminated showroom grid with realistic under-car shadow.
+- **Press-and-Hold Studio Showcase**: Long-press the Aiways U5 card to open the full-screen vehicle inspector with interactive 3D perspective drag-tilt, 1-tap paint color switching, live battery/trip sync, and verified 2021 Aiways U5 specs.

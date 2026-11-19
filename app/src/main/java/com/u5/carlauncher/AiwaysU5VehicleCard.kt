@@ -2,7 +2,11 @@
 
 package com.u5.carlauncher
 
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,59 +27,43 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.*
+import kotlin.math.roundToInt
 
 enum class U5PaintColor(
     val id: String,
     val label: String,
-    val bodyLight: Color,
-    val bodyMid: Color,
-    val bodyDark: Color,
-    val trimGlow: Color
+    val swatch: Color,
+    @DrawableRes val drawableRes: Int
 ) {
     ELECTRIC_BLUE(
         id = "blue",
         label = "Electric Blue",
-        bodyLight = Color(0xFF4B7BB8),
-        bodyMid = Color(0xFF214372),
-        bodyDark = Color(0xFF0E1D36),
-        trimGlow = Color(0xFF7DD3FC)
+        swatch = Color(0xFF2563EB),
+        drawableRes = R.drawable.u5_studio_blue
     ),
     GLACIER_WHITE(
         id = "white",
         label = "Glacier White",
-        bodyLight = Color(0xFFF1F5F9),
-        bodyMid = Color(0xFFCBD5E1),
-        bodyDark = Color(0xFF64748B),
-        trimGlow = Color(0xFFE0F2FE)
+        swatch = Color(0xFFF1F5F9),
+        drawableRes = R.drawable.u5_studio_white
     ),
-    OBSIDIAN_BLACK(
-        id = "black",
-        label = "Obsidian",
-        bodyLight = Color(0xFF475569),
-        bodyMid = Color(0xFF1E293B),
-        bodyDark = Color(0xFF090D16),
-        trimGlow = Color(0xFF94A3B8)
-    ),
-    AUBERGINE_SILVER(
-        id = "aubergine",
-        label = "Aubergine",
-        bodyLight = Color(0xFF7C5A7E),
-        bodyMid = Color(0xFF462C49),
-        bodyDark = Color(0xFF1F1121),
-        trimGlow = Color(0xFFE9D5FF)
+    TITANIUM_GREY(
+        id = "grey",
+        label = "Titanium Grey",
+        swatch = Color(0xFF64748B),
+        drawableRes = R.drawable.u5_studio_grey
     );
 
     companion object {
@@ -88,6 +76,72 @@ private fun bearingToCompass(bearing: Float): String {
     val dirs = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
     val normalized = ((bearing % 360f) + 360f) % 360f
     return dirs[((normalized + 22.5f) / 45f).toInt() % 8]
+}
+
+@Composable
+fun ShowroomPlatformGrid(
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val horizonY = h * 0.62f
+        val bottomY = h * 0.96f
+        val cx = w / 2f
+
+        // Subtle under-car ambient glow
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(accentColor.copy(alpha = 0.24f), Color.Transparent),
+                center = Offset(cx, h * 0.74f),
+                radius = w * 0.46f
+            ),
+            topLeft = Offset(cx - w * 0.46f, h * 0.48f),
+            size = Size(w * 0.92f, h * 0.50f)
+        )
+
+        // Perspective horizontal lines
+        val gridColor = accentColor.copy(alpha = 0.28f)
+        val rows = 5
+        for (i in 0..rows) {
+            val t = i.toFloat() / rows
+            val eased = t * t
+            val y = horizonY + (bottomY - horizonY) * eased
+            val halfSpan = w * (0.28f + 0.22f * eased)
+            drawLine(
+                color = gridColor.copy(alpha = 0.14f + 0.22f * t),
+                start = Offset(cx - halfSpan, y),
+                end = Offset(cx + halfSpan, y),
+                strokeWidth = 1.2f
+            )
+        }
+
+        // Perspective converging lines
+        val cols = 6
+        for (i in -cols..cols) {
+            val frac = i.toFloat() / cols
+            val topX = cx + frac * w * 0.28f
+            val botX = cx + frac * w * 0.50f
+            drawLine(
+                color = gridColor.copy(alpha = 0.22f),
+                start = Offset(topX, horizonY),
+                end = Offset(botX, bottomY),
+                strokeWidth = 1.2f
+            )
+        }
+
+        // Realistic dark contact shadow directly under the Aiways U5 tires
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent),
+                center = Offset(cx, h * 0.80f),
+                radius = w * 0.40f
+            ),
+            topLeft = Offset(cx - w * 0.40f, h * 0.68f),
+            size = Size(w * 0.80f, h * 0.24f)
+        )
+    }
 }
 
 @Composable
@@ -113,21 +167,18 @@ fun AiwaysU5CockpitCard(
         modifier = modifier
             .luxuryCardSurface(theme, finish, cornerRadius = 26.dp)
             .combinedClickable(
-                onClick = { /* Short tap kept calm; long-press opens 3D view */ },
+                onClick = { },
                 onLongClick = onLongPress3D
             )
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Subtle showroom radial spotlight behind the Aiways U5
+        // Soft showroom spotlight
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(
-                            theme.accent.copy(alpha = 0.16f),
-                            Color.Transparent
-                        )
+                        colors = listOf(theme.accent.copy(alpha = 0.14f), Color.Transparent)
                     )
                 )
         )
@@ -136,7 +187,7 @@ fun AiwaysU5CockpitCard(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // TOP HEADER ROW: Date (left) + AIWAYS U5 / WATCH pill (right)
+            // TOP HEADER ROW
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -163,7 +214,7 @@ fun AiwaysU5CockpitCard(
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "U5 3D",
+                            text = "U5 INFO",
                             color = theme.accentGlow,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
@@ -190,17 +241,17 @@ fun AiwaysU5CockpitCard(
                 }
             }
 
-            // MAIN TELEMETRY + CENTER AIWAYS U5 SUV STAGE
+            // MAIN TELEMETRY + REAL STUDIO AIWAYS U5 CENTER STAGE
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // LEFT TELEMETRY COLUMN: GPS Speed + Compass + Trip
+                // LEFT TELEMETRY: GPS Speed + Compass + Trip
                 Column(
                     modifier = Modifier
-                        .width(96.dp)
+                        .width(92.dp)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.SpaceEvenly
                 ) {
@@ -231,28 +282,24 @@ fun AiwaysU5CockpitCard(
                         )
                     }
 
-                    // Compass Heading
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Navigation,
-                                contentDescription = "Heading",
-                                tint = theme.accentGlow,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = compassLabel,
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Navigation,
+                            contentDescription = "Heading",
+                            tint = theme.accentGlow,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = compassLabel,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
-                    // Trip Odometer
                     Column {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
@@ -279,43 +326,48 @@ fun AiwaysU5CockpitCard(
                     }
                 }
 
-                // CENTER STAGE: 2021 AIWAYS U5 ELECTRIC SUV ON ILLUMINATED PLATFORM
+                // CENTER STAGE: REALISTIC STUDIO AIWAYS U5 ON SHOWROOM GRID
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
                     contentAlignment = Alignment.Center
                 ) {
-                    AiwaysU53DCanvas(
-                        yawDeg = -32f,
-                        pitchDeg = 13f,
-                        paintColor = paintColor,
+                    ShowroomPlatformGrid(
                         accentColor = theme.accent,
-                        showGrid = true,
                         modifier = Modifier.fillMaxSize()
                     )
 
+                    Image(
+                        painter = painterResource(id = paintColor.drawableRes),
+                        contentDescription = "Aiways U5 ${paintColor.label}",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth(0.96f)
+                            .fillMaxHeight(0.84f)
+                            .padding(bottom = 10.dp)
+                    )
+
                     Text(
-                        text = "AIWAYS U5  •  HOLD FOR 3D",
-                        color = Color.White.copy(alpha = 0.45f),
+                        text = "AIWAYS U5  •  HOLD FOR INFO",
+                        color = Color.White.copy(alpha = 0.48f),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
+                        letterSpacing = 1.1.sp,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 1.dp)
                     )
                 }
 
-                // RIGHT TELEMETRY COLUMN: Battery Ring + Est Range + Tire Pressure
+                // RIGHT TELEMETRY: Battery Ring + Est Range + Tire Pressure
                 Column(
                     modifier = Modifier
-                        .width(96.dp)
+                        .width(92.dp)
                         .fillMaxHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    // Circular Battery Ring
                     Box(
                         modifier = Modifier.size(64.dp),
                         contentAlignment = Alignment.Center
@@ -356,7 +408,6 @@ fun AiwaysU5CockpitCard(
                         }
                     }
 
-                    // Estimated WLTP Range
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = "EST. RANGE",
@@ -382,7 +433,6 @@ fun AiwaysU5CockpitCard(
                         }
                     }
 
-                    // Tire Pressure (Aiways U5 Standard 2.5 BAR)
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = "2.5",
@@ -405,9 +455,7 @@ fun AiwaysU5CockpitCard(
 }
 
 /**
- * Press-and-Hold 3D Interactive Aiways U5 Popup Modal
- * Allows 360-degree touch rotation, paint color switching, battery sync, trip reset,
- * and full 2021 Aiways U5 vehicle specifications.
+ * Press-and-Hold Realistic Studio Aiways U5 Showcase + Interactive 3D Tilt & Full Specs
  */
 @Composable
 fun AiwaysU53DInspectorOverlay(
@@ -422,17 +470,10 @@ fun AiwaysU53DInspectorOverlay(
     onSelectPaint: (U5PaintColor) -> Unit,
     onClose: () -> Unit
 ) {
-    var yawDeg by remember { mutableFloatStateOf(-35f) }
-    var pitchDeg by remember { mutableFloatStateOf(16f) }
-    var autoSpin by remember { mutableStateOf(true) }
-
-    // Smooth 3D turntable rotation until user drags manually
-    LaunchedEffect(autoSpin) {
-        while (autoSpin) {
-            yawDeg = (yawDeg + 0.8f) % 360f
-            delay(30L)
-        }
-    }
+    var targetTiltY by remember { mutableFloatStateOf(0f) }
+    var targetTiltX by remember { mutableFloatStateOf(0f) }
+    val tiltY by animateFloatAsState(targetValue = targetTiltY, animationSpec = spring(dampingRatio = 0.65f), label = "tiltY")
+    val tiltX by animateFloatAsState(targetValue = targetTiltX, animationSpec = spring(dampingRatio = 0.65f), label = "tiltX")
 
     val estRangeKm = ((batteryPct.coerceIn(0, 100) / 100f) * 400f).roundToInt()
 
@@ -476,14 +517,14 @@ fun AiwaysU53DInspectorOverlay(
                     }
                     Column {
                         Text(
-                            text = "AIWAYS U5  •  3D VEHICLE VIEW",
+                            text = "AIWAYS U5  •  STUDIO SHOWCASE",
                             color = Color.White,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 1.0.sp
                         )
                         Text(
-                            text = "2021 Electric SUV  •  Drag to rotate 360°",
+                            text = "2021 Electric SUV  •  Drag car for 3D perspective tilt",
                             color = theme.accentGlow.copy(alpha = 0.85f),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium
@@ -491,42 +532,21 @@ fun AiwaysU53DInspectorOverlay(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (autoSpin) theme.accent.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f))
-                            .border(1.dp, if (autoSpin) theme.accent else Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                            .clickable { autoSpin = !autoSpin }
-                            .padding(horizontal = 14.dp, vertical = 9.dp)
-                    ) {
-                        Text(
-                            text = if (autoSpin) "Auto-Spin: ON" else "Auto-Spin: OFF",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    CarPlayDockBadge(
-                        icon = Icons.Rounded.Close,
-                        gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
-                        onClick = onClose
-                    )
-                }
+                CarPlayDockBadge(
+                    icon = Icons.Rounded.Close,
+                    gradient = listOf(Color(0xFF3A3A3C), Color(0xFF1C1C1E)),
+                    onClick = onClose
+                )
             }
 
-            // Main Split: Left 3D Turntable Stage | Right Vehicle Specs & Telemetry Controls
+            // Main Split: Left Studio Showcase | Right Vehicle Specs & Telemetry Sync
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // LEFT: INTERACTIVE 3D AIWAYS U5 TURNTABLE
+                // LEFT: INTERACTIVE 3D-TILT STUDIO SHOWROOM
                 Column(
                     modifier = Modifier
                         .weight(1.25f)
@@ -546,59 +566,84 @@ fun AiwaysU53DInspectorOverlay(
                             .fillMaxWidth()
                             .weight(1f)
                             .pointerInput(Unit) {
-                                detectDragGestures { change, dragAmount ->
+                                detectDragGestures(
+                                    onDragEnd = {
+                                        targetTiltY = 0f
+                                        targetTiltX = 0f
+                                    },
+                                    onDragCancel = {
+                                        targetTiltY = 0f
+                                        targetTiltX = 0f
+                                    }
+                                ) { change, dragAmount ->
                                     change.consume()
-                                    autoSpin = false
-                                    yawDeg = (yawDeg + dragAmount.x * 0.55f) % 360f
-                                    pitchDeg = (pitchDeg + dragAmount.y * 0.25f).coerceIn(4f, 38f)
+                                    targetTiltY = (targetTiltY + dragAmount.x * 0.14f).coerceIn(-24f, 24f)
+                                    targetTiltX = (targetTiltX - dragAmount.y * 0.10f).coerceIn(-12f, 12f)
                                 }
-                            }
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        AiwaysU53DCanvas(
-                            yawDeg = yawDeg,
-                            pitchDeg = pitchDeg,
-                            paintColor = paintColor,
+                        ShowroomPlatformGrid(
                             accentColor = theme.accent,
-                            showGrid = true,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    rotationY = tiltY * 0.45f
+                                    rotationX = tiltX * 0.45f
+                                    cameraDistance = 14f * density
+                                }
+                        )
+
+                        Image(
+                            painter = painterResource(id = paintColor.drawableRes),
+                            contentDescription = "Aiways U5 ${paintColor.label}",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth(0.92f)
+                                .fillMaxHeight(0.84f)
+                                .graphicsLayer {
+                                    rotationY = tiltY
+                                    rotationX = tiltX
+                                    cameraDistance = 14f * density
+                                }
                         )
                     }
 
-                    // Paint Finish Selector Row
+                    // Paint Color Switcher (Electric Blue, Glacier White, Titanium Grey)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             U5PaintColor.entries.forEach { p ->
                                 val selected = p == paintColor
                                 Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(if (selected) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f))
+                                        .background(if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f))
                                         .border(
                                             1.dp,
-                                            if (selected) theme.accentGlow else Color.White.copy(alpha = 0.15f),
+                                            if (selected) theme.accentGlow else Color.White.copy(alpha = 0.16f),
                                             RoundedCornerShape(12.dp)
                                         )
                                         .clickable { onSelectPaint(p) }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(12.dp)
+                                            .size(14.dp)
                                             .clip(CircleShape)
-                                            .background(p.bodyLight)
-                                            .border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                                            .background(p.swatch)
+                                            .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
                                     )
                                     Text(
                                         text = p.label,
                                         color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -606,14 +651,13 @@ fun AiwaysU53DInspectorOverlay(
                     }
                 }
 
-                // RIGHT: VEHICLE SPECIFICATIONS & LIVE DASHBOARD SYNC
+                // RIGHT: LIVE TELEMETRY & VERIFIED 2021 AIWAYS U5 SPECS
                 Column(
                     modifier = Modifier
                         .weight(0.95f)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Live Telemetry Sync Box
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -658,7 +702,6 @@ fun AiwaysU53DInspectorOverlay(
                         }
                     }
 
-                    // 2021 Aiways U5 Verified Technical Specs Grid
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -752,281 +795,5 @@ private fun VehicleSpecTile(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-    }
-}
-
-// ============================================================================
-// TRUE 3D PERSPECTIVE AIWAYS U5 ELECTRIC SUV RENDERER (PURE KOTLIN / COMPOSE)
-// ============================================================================
-
-private data class Vec3(val x: Float, val y: Float, val z: Float)
-
-private data class Face3D(
-    val points: List<Vec3>,
-    val fill: Color,
-    val stroke: Color = Color.White.copy(alpha = 0.18f),
-    val strokeWidth: Float = 1.4f,
-    val isEmissive: Boolean = false
-)
-
-@Composable
-fun AiwaysU53DCanvas(
-    yawDeg: Float,
-    pitchDeg: Float,
-    paintColor: U5PaintColor,
-    accentColor: Color,
-    showGrid: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cx = w / 2f
-        val cy = h * 0.56f
-        val scale = min(w, h) * 0.62f
-
-        val yaw = Math.toRadians(yawDeg.toDouble()).toFloat()
-        val pitch = Math.toRadians(pitchDeg.toDouble()).toFloat()
-        val cosY = cos(yaw); val sinY = sin(yaw)
-        val cosP = cos(pitch); val sinP = sin(pitch)
-
-        fun transform(v: Vec3): Vec3 {
-            val rx = v.x * cosY + v.z * sinY
-            val rz1 = -v.x * sinY + v.z * cosY
-            val ry = v.y * cosP - rz1 * sinP
-            val rz = v.y * sinP + rz1 * cosP
-            return Vec3(rx, ry, rz)
-        }
-
-        fun project(v: Vec3): Offset {
-            val camDist = 4.6f
-            val f = camDist / (camDist + v.z).coerceAtLeast(1.2f)
-            return Offset(cx + v.x * scale * f, cy - v.y * scale * f)
-        }
-
-        // 1. Illuminated Showroom Perspective Platform Grid
-        if (showGrid) {
-            val gridY = -0.34f
-            val gridColor = accentColor.copy(alpha = 0.28f)
-            for (i in -3..3) {
-                val t = i * 0.36f
-                val p1 = project(transform(Vec3(-1.35f, gridY, t)))
-                val p2 = project(transform(Vec3(1.35f, gridY, t)))
-                drawLine(gridColor, p1, p2, strokeWidth = 1.2f)
-
-                val q1 = project(transform(Vec3(t * 1.25f, gridY, -1.08f)))
-                val q2 = project(transform(Vec3(t * 1.25f, gridY, 1.08f)))
-                drawLine(gridColor, q1, q2, strokeWidth = 1.2f)
-            }
-
-            // Soft under-car neon shadow oval
-            val shadowCenter = project(transform(Vec3(0f, gridY + 0.01f, 0f)))
-            drawOval(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent),
-                    center = shadowCenter,
-                    radius = scale * 0.95f
-                ),
-                topLeft = Offset(shadowCenter.x - scale * 0.95f, shadowCenter.y - scale * 0.30f),
-                size = Size(scale * 1.90f, scale * 0.60f)
-            )
-        }
-
-        // 2. Build 2021 Aiways U5 Electric SUV 3D Geometry (4.68m x 1.86m x 1.70m proportions)
-        // Coordinate system: X = length (-1.12 rear .. +1.12 front), Y = height (-0.34 ground .. +0.46 roof), Z = width (-0.48 .. +0.48)
-        val faces = mutableListOf<Face3D>()
-        val cLight = paintColor.bodyLight
-        val cMid = paintColor.bodyMid
-        val cDark = paintColor.bodyDark
-        val glassColor = Color(0xFF0C1524)
-        val roofColor = Color(0xFF0A0D13) // Iconic Aiways U5 floating black roof
-        val trimColor = Color(0xFF141820)
-        val headlightColor = Color(0xFFE0F2FE)
-        val taillightColor = Color(0xFFFF2A3C)
-
-        // Helper to add a quad face
-        fun addQuad(p1: Vec3, p2: Vec3, p3: Vec3, p4: Vec3, fill: Color, stroke: Color = paintColor.trimGlow.copy(alpha = 0.25f), sw: Float = 1.3f, emissive: Boolean = false) {
-            faces.add(Face3D(listOf(p1, p2, p3, p4), fill, stroke, sw, emissive))
-        }
-
-        val wBody = 0.48f
-        val wRoof = 0.37f
-        val yLow = -0.18f
-        val yBelt = 0.14f
-        val yHoodFront = 0.06f
-        val yRoof = 0.46f
-
-        // Lower body sides (Left Z=+wBody, Right Z=-wBody)
-        for (side in listOf(-1f, 1f)) {
-            val zB = side * wBody
-            val zR = side * wRoof
-            val sideShade = if (side > 0) cMid else cDark
-
-            // Main side body panel (SUV tall shoulder line)
-            addQuad(
-                Vec3(-1.08f, yLow, zB),
-                Vec3(1.06f, yLow, zB),
-                Vec3(1.10f, yHoodFront, zB * 0.96f),
-                Vec3(-1.05f, yBelt, zB * 0.98f),
-                sideShade
-            )
-            // Upper shoulder contour from hood to rear
-            addQuad(
-                Vec3(-1.05f, yBelt, zB * 0.98f),
-                Vec3(0.46f, yBelt + 0.02f, zB * 0.98f),
-                Vec3(1.10f, yHoodFront, zB * 0.96f),
-                Vec3(0.50f, yLow, zB),
-                sideShade
-            )
-            // Side greenhouse windows (floating black glasshouse)
-            addQuad(
-                Vec3(-0.92f, yBelt + 0.01f, zB * 0.95f),
-                Vec3(0.42f, yBelt + 0.02f, zB * 0.95f),
-                Vec3(0.16f, yRoof - 0.01f, zR),
-                Vec3(-0.76f, yRoof - 0.01f, zR),
-                glassColor,
-                stroke = Color.White.copy(alpha = 0.35f)
-            )
-            // Signature Aiways U5 vertical side air-curtain intake on front bumper
-            addQuad(
-                Vec3(1.03f, yLow + 0.02f, zB * 0.97f),
-                Vec3(1.10f, yLow + 0.04f, zB * 0.92f),
-                Vec3(1.08f, yHoodFront - 0.02f, zB * 0.92f),
-                Vec3(0.99f, yHoodFront - 0.01f, zB * 0.97f),
-                trimColor,
-                stroke = paintColor.trimGlow.copy(alpha = 0.45f)
-            )
-        }
-
-        // Front closed EV fascia (Aiways U5 signature grille-less nose)
-        addQuad(
-            Vec3(1.06f, yLow, -wBody * 0.95f),
-            Vec3(1.06f, yLow, wBody * 0.95f),
-            Vec3(1.10f, yHoodFront, wBody * 0.92f),
-            Vec3(1.10f, yHoodFront, -wBody * 0.92f),
-            cMid
-        )
-        // Lower front black diffuser lip
-        addQuad(
-            Vec3(1.05f, yLow - 0.03f, -wBody * 0.85f),
-            Vec3(1.05f, yLow - 0.03f, wBody * 0.85f),
-            Vec3(1.07f, yLow + 0.05f, wBody * 0.88f),
-            Vec3(1.07f, yLow + 0.05f, -wBody * 0.88f),
-            trimColor
-        )
-        // Slim sharp Aiways U5 LED Headlights (Left & Right)
-        for (side in listOf(-1f, 1f)) {
-            val z1 = side * wBody * 0.46f
-            val z2 = side * wBody * 0.90f
-            addQuad(
-                Vec3(1.11f, yHoodFront - 0.05f, min(z1, z2)),
-                Vec3(1.11f, yHoodFront - 0.05f, max(z1, z2)),
-                Vec3(1.09f, yHoodFront + 0.01f, max(z1, z2)),
-                Vec3(1.09f, yHoodFront + 0.01f, min(z1, z2)),
-                headlightColor,
-                stroke = Color.White,
-                sw = 2.0f,
-                emissive = true
-            )
-        }
-
-        // Sculpted SUV Hood
-        addQuad(
-            Vec3(0.42f, yBelt + 0.02f, -wBody * 0.95f),
-            Vec3(0.42f, yBelt + 0.02f, wBody * 0.95f),
-            Vec3(1.10f, yHoodFront, wBody * 0.92f),
-            Vec3(1.10f, yHoodFront, -wBody * 0.92f),
-            cLight
-        )
-
-        // Panoramic Front Windshield
-        addQuad(
-            Vec3(0.42f, yBelt + 0.02f, -wBody * 0.93f),
-            Vec3(0.42f, yBelt + 0.02f, wBody * 0.93f),
-            Vec3(0.16f, yRoof, wRoof),
-            Vec3(0.16f, yRoof, -wRoof),
-            glassColor,
-            stroke = Color.White.copy(alpha = 0.40f)
-        )
-
-        // Floating Black Panoramic Roof
-        addQuad(
-            Vec3(-0.76f, yRoof, -wRoof),
-            Vec3(-0.76f, yRoof, wRoof),
-            Vec3(0.16f, yRoof, wRoof),
-            Vec3(0.16f, yRoof, -wRoof),
-            roofColor,
-            stroke = Color.White.copy(alpha = 0.30f)
-        )
-
-        // Rear Windshield (sloped SUV tailgate)
-        addQuad(
-            Vec3(-1.05f, yBelt, -wBody * 0.93f),
-            Vec3(-1.05f, yBelt, wBody * 0.93f),
-            Vec3(-0.76f, yRoof, wRoof),
-            Vec3(-0.76f, yRoof, -wRoof),
-            glassColor,
-            stroke = Color.White.copy(alpha = 0.32f)
-        )
-
-        // Rear Tailgate Body
-        addQuad(
-            Vec3(-1.08f, yLow, -wBody * 0.95f),
-            Vec3(-1.08f, yLow, wBody * 0.95f),
-            Vec3(-1.05f, yBelt, wBody * 0.95f),
-            Vec3(-1.05f, yBelt, -wBody * 0.95f),
-            cDark
-        )
-
-        // Signature Aiways U5 Full-Width Rear LED Light Bar!
-        addQuad(
-            Vec3(-1.075f, yBelt - 0.06f, -wBody * 0.90f),
-            Vec3(-1.075f, yBelt - 0.06f, wBody * 0.90f),
-            Vec3(-1.065f, yBelt - 0.01f, wBody * 0.90f),
-            Vec3(-1.065f, yBelt - 0.01f, -wBody * 0.90f),
-            taillightColor,
-            stroke = Color(0xFFFF8A95),
-            sw = 2.0f,
-            emissive = true
-        )
-
-        // 4 Wheels (19-inch alloy octagons positioned at Aiways U5 2800mm wheelbase)
-        val wheelPositions = listOf(
-            Vec3(0.68f, -0.19f, wBody + 0.01f),
-            Vec3(-0.68f, -0.19f, wBody + 0.01f),
-            Vec3(0.68f, -0.19f, -wBody - 0.01f),
-            Vec3(-0.68f, -0.19f, -wBody - 0.01f)
-        )
-        for (wp in wheelPositions) {
-            val tirePts = mutableListOf<Vec3>()
-            val rimPts = mutableListOf<Vec3>()
-            for (k in 0 until 12) {
-                val a = (k * 30.0) * PI / 180.0
-                tirePts.add(Vec3(wp.x + cos(a).toFloat() * 0.175f, wp.y + sin(a).toFloat() * 0.175f, wp.z))
-                rimPts.add(Vec3(wp.x + cos(a).toFloat() * 0.105f, wp.y + sin(a).toFloat() * 0.105f, wp.z + (if (wp.z > 0) 0.005f else -0.005f)))
-            }
-            faces.add(Face3D(tirePts, Color(0xFF0E1117), Color(0xFF475569), 1.8f))
-            faces.add(Face3D(rimPts, Color(0xFF94A3B8), Color.White.copy(alpha = 0.85f), 1.6f))
-        }
-
-        // 3. Depth-sort faces (Painter's Algorithm) and render!
-        val sorted = faces.map { f ->
-            val tPts = f.points.map { transform(it) }
-            val avgZ = tPts.map { it.z }.average().toFloat()
-            Triple(f, tPts, avgZ)
-        }.sortedByDescending { it.third }
-
-        for ((face, tPts, _) in sorted) {
-            val proj = tPts.map { project(it) }
-            val path = Path().apply {
-                moveTo(proj.first().x, proj.first().y)
-                for (i in 1 until proj.size) {
-                    lineTo(proj[i].x, proj[i].y)
-                }
-                close()
-            }
-            drawPath(path = path, color = face.fill)
-            drawPath(path = path, color = face.stroke, style = Stroke(width = face.strokeWidth))
-        }
     }
 }
