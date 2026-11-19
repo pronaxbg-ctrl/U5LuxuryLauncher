@@ -1,5 +1,4 @@
-# U5 Luxury Car Launcher v2 (CarPlay + One UI Edition)
+# U5 Luxury Car Launcher v3 (Self-Updating Edition)
 
-- **Left Side**: Embedded interactive dark-mode map with pan/zoom and 1-tap Google Maps navigation launch.
-- **Top-Right**: Samsung One UI-style music player with full-bleed album art, glowing animated wave progress bar, live timestamps, and tap-to-seek.
-- **Bottom-Right & Dock**: Apple CarPlay-style glossy rounded-square app icons and crisp bold typography.
+- **Fixed Signing Key (`app/u5_release.p12`)**: Future updates install cleanly over previous versions without uninstalling or losing permissions.
+- **1-Tap In-App Updater**: Open **Theme Studio** (Palette icon) and tap **Check for Updates** to download and install the latest GitHub Release right on your car screen or TV.

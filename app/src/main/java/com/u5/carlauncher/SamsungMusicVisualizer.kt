@@ -22,11 +22,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.PI
 import kotlin.math.sin
 
-/**
- * Samsung One UI / Media Widget style glowing animated wave progress bar.
- * Displays a smooth flame-like layered wave along the played portion of the track,
- * a bright glowing circular thumb, and tap-to-seek support.
- */
 @Composable
 fun OneUiWaveProgressBar(
     progress: Float,
@@ -79,7 +74,6 @@ fun OneUiWaveProgressBar(
         val trackY = h * 0.68f
         val thumbX = (w * clampedProgress).coerceIn(10f, (w - 10f).coerceAtLeast(10f))
 
-        // 1. Unplayed track (clean translucent white/gray)
         drawLine(
             color = Color.White.copy(alpha = 0.28f),
             start = Offset(0f, trackY),
@@ -88,7 +82,6 @@ fun OneUiWaveProgressBar(
             cap = StrokeCap.Round
         )
 
-        // 2. Layered glowing wave rising above the played track (like Samsung One UI widget)
         if (thumbX > 18f) {
             val steps = 48
             val maxAmp = h * 0.48f * energy
@@ -150,7 +143,6 @@ fun OneUiWaveProgressBar(
             )
         }
 
-        // 3. Solid glowing played bar
         drawLine(
             brush = Brush.horizontalGradient(
                 colors = listOf(wavePrimary, waveGlow),
@@ -163,7 +155,6 @@ fun OneUiWaveProgressBar(
             cap = StrokeCap.Round
         )
 
-        // 4. Outer glow + crisp circular thumb (matching uploaded widget)
         drawCircle(
             color = wavePrimary.copy(alpha = 0.45f),
             radius = 18f,

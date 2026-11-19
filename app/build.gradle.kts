@@ -12,13 +12,27 @@ android {
         applicationId = "com.u5.carlauncher"
         minSdk = 28
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "3.0.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("u5_release.p12")
+            storePassword = "u5luxury2026"
+            keyAlias = "u5launcher"
+            keyPassword = "u5luxury2026"
+            storeType = "PKCS12"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

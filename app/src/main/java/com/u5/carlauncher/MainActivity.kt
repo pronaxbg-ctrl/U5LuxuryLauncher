@@ -51,6 +51,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -101,7 +102,6 @@ fun U5LuxuryCockpit() {
     val mediaState by MediaRepository.state.collectAsState()
     var currentTime by remember { mutableStateOf("18:10") }
 
-    // Live 1-second clock + media progress poll
     LaunchedEffect(Unit) {
         val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
         while (true) {
@@ -157,7 +157,6 @@ fun U5LuxuryCockpit() {
                     .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Top-Right: Samsung One UI / Uploaded Screenshot Style Music Card
                 OneUiStyleMusicCard(
                     mediaState = mediaState,
                     theme = theme,
@@ -182,7 +181,6 @@ fun U5LuxuryCockpit() {
                     }
                 )
 
-                // Bottom-Right Row 1: CarPlay-style Spotify & YT Music
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -209,7 +207,6 @@ fun U5LuxuryCockpit() {
                     )
                 }
 
-                // Bottom-Right Row 2: CarPlay-style Messages & Settings
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -238,7 +235,6 @@ fun U5LuxuryCockpit() {
             }
         }
 
-        // OVERLAY: ALL APPS DRAWER
         if (showAppDrawer) {
             AllAppsLuxuryOverlay(
                 apps = installedApps,
@@ -252,7 +248,6 @@ fun U5LuxuryCockpit() {
             )
         }
 
-        // OVERLAY: THEME STUDIO
         if (showThemeModal) {
             ThemeStudioOverlay(
                 currentTheme = theme,
@@ -291,7 +286,6 @@ fun CarPlayLuxuryDock(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Crisp CarPlay Clock
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = time,
@@ -310,7 +304,6 @@ fun CarPlayLuxuryDock(
             )
         }
 
-        // CarPlay Rounded-Square App Icons
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -337,7 +330,6 @@ fun CarPlayLuxuryDock(
             )
         }
 
-        // Theme Switcher
         CarPlayDockBadge(
             icon = Icons.Rounded.Palette,
             gradient = listOf(theme.accent, theme.accentSecondary),
@@ -383,7 +375,6 @@ fun EmbeddedNavigationMapCard(
             .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
             .clip(RoundedCornerShape(28.dp))
     ) {
-        // Interactive Dark-Mode Map WebView (pan/zoom directly inside the launcher)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -412,7 +403,6 @@ fun EmbeddedNavigationMapCard(
             }
         )
 
-        // Top Floating CarPlay-style Navigation Pill
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -445,7 +435,6 @@ fun EmbeddedNavigationMapCard(
                 )
             }
 
-            // Fullscreen Google Maps Launch Button
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -497,7 +486,6 @@ fun OneUiStyleMusicCard(
             .background(Color(0xFF141214))
             .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
     ) {
-        // Full-bleed Album Art Background (matching uploaded Samsung widget)
         if (mediaState.albumArt != null) {
             Image(
                 bitmap = mediaState.albumArt.asImageBitmap(),
@@ -507,7 +495,6 @@ fun OneUiStyleMusicCard(
             )
         }
 
-        // Smooth dark cinematic gradient overlay for high legibility
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -528,7 +515,6 @@ fun OneUiStyleMusicCard(
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Row: Device/App Name + Audio Output Icon (or Live Sync Prompt)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -571,7 +557,6 @@ fun OneUiStyleMusicCard(
                 }
             }
 
-            // Center Row: Play Badge + "Title • Artist"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -596,7 +581,6 @@ fun OneUiStyleMusicCard(
                 )
             }
 
-            // Glowing One UI Wave Progress Bar + Timestamps
             Column(modifier = Modifier.fillMaxWidth()) {
                 OneUiWaveProgressBar(
                     progress = progress,
@@ -627,7 +611,6 @@ fun OneUiStyleMusicCard(
                 }
             }
 
-            // Bottom Row: Frosted Circular Transport Controls (matching uploaded widget)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -719,7 +702,6 @@ fun CarPlayAppTile(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Glossy iOS/CarPlay Rounded-Square Icon Badge
         Box(
             modifier = Modifier
                 .size(56.dp)
@@ -828,19 +810,25 @@ fun ThemeStudioOverlay(
     onSelectFinish: (ButtonFinish) -> Unit,
     onClose: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val installedVersion = remember { LauncherUpdater.getCurrentVersionName(context) }
+    var updateStatus by remember { mutableStateOf("Installed: v$installedVersion  •  Fixed Signing Key Active") }
+    var isUpdating by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xEB07080B))
-            .padding(28.dp),
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.86f)
+                .fillMaxWidth(0.88f)
                 .luxuryCardSurface(currentTheme, currentFinish, cornerRadius = 28.dp)
-                .padding(26.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -909,7 +897,7 @@ fun ThemeStudioOverlay(
                             .weight(1f)
                             .luxuryButtonSurface(currentTheme, f, cornerRadius = 16.dp, highlighted = selected)
                             .clickable { onSelectFinish(f) }
-                            .padding(vertical = 16.dp),
+                            .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -919,6 +907,74 @@ fun ThemeStudioOverlay(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+
+            // 1-Tap Built-In OTA Updater Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.06f))
+                    .border(1.dp, currentTheme.border, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "SOFTWARE UPDATE",
+                        color = currentTheme.accentGlow,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = updateStatus,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(currentTheme.accent, currentTheme.accentSecondary)
+                            )
+                        )
+                        .clickable(enabled = !isUpdating) {
+                            isUpdating = true
+                            scope.launch {
+                                LauncherUpdater.checkAndInstallUpdate(context) { status ->
+                                    updateStatus = status
+                                }
+                                isUpdating = false
+                            }
+                        }
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SystemUpdate,
+                        contentDescription = "Check for Updates",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = if (isUpdating) "Updating..." else "Check for Updates",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
