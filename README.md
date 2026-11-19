@@ -1,4 +1,4 @@
-# U5 Luxury Car Launcher v4.5 (Realistic Studio Aiways U5 Edition)
+# U5 Luxury Car Launcher v4.6 (Hologram Blue Aiways U5 Edition)
 
-- **Realistic Studio Aiways U5 Renders**: Background-removed transparent PNGs of the real Aiways U5 in **Electric Blue** (default), **Glacier White**, and **Titanium Grey**, placed on an illuminated showroom grid with realistic under-car shadow.
-- **Press-and-Hold Studio Showcase**: Long-press the Aiways U5 card to open the full-screen vehicle inspector with interactive 3D perspective drag-tilt, 1-tap paint color switching, live battery/trip sync, and verified 2021 Aiways U5 specs.
+- **Background-Free Hologram Blue Aiways U5 (`u5_tech_blue.png`)**: Uses the exact wireframe-mesh blue Aiways U5 render with transparent background, animated cyan tech scan-beam, pulsing under-chassis light ring, and perspective showroom grid.
+- **Unified Cockpit Bottom Control Bar**: Restyled bottom bar with matching metallic glass borders, blue tech accent glow, unified volume pill (`−` / `%` / `+`), `DIM`, live outside temperature (`°C`), illuminated `Apps` pill, `DARK`/`SAT`, `U5`/`WATCH`, `AMBIENT`, and `SETTINGS`.

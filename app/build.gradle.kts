@@ -12,8 +12,8 @@ android {
         applicationId = "com.u5.carlauncher"
         minSdk = 28
         targetSdk = 34
-        versionCode = 9
-        versionName = "4.5.0"
+        versionCode = 10
+        versionName = "4.6.0"
     }
 
     signingConfigs {

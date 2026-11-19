@@ -480,30 +480,52 @@ fun OemAutomotiveControlBar(
     onOpenSettings: () -> Unit,
     onOpenTheme: () -> Unit
 ) {
+    val techCyan = Color(0xFF38BDF8)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(54.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(56.dp)
+            .clip(RoundedCornerShape(22.dp))
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xE824272E), Color(0xF514161B))
+                    colors = listOf(
+                        theme.surfaceElevated.copy(alpha = 0.90f),
+                        theme.bgTop.copy(alpha = 0.96f)
+                    )
                 )
             )
             .border(
                 width = 1.dp,
                 brush = Brush.horizontalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.08f),
-                        Color.White.copy(alpha = 0.28f),
+                        theme.border,
+                        techCyan.copy(alpha = 0.45f),
                         Color.White.copy(alpha = 0.42f),
-                        Color.White.copy(alpha = 0.28f),
-                        Color.White.copy(alpha = 0.08f)
+                        techCyan.copy(alpha = 0.45f),
+                        theme.border
                     )
                 ),
-                shape = RoundedCornerShape(18.dp)
+                shape = RoundedCornerShape(22.dp)
             )
     ) {
+        // Subtle blue tech bottom accent glow line across the bar
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.68f)
+                .height(2.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            techCyan.copy(alpha = 0.55f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -514,7 +536,7 @@ fun OemAutomotiveControlBar(
             // LEFT CLUSTER: Mute + Blue (-) / Volume % / Red (+) + DIM + Outside Temperature
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OemThinAction(
                     icon = if (isMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
@@ -524,30 +546,36 @@ fun OemAutomotiveControlBar(
                     onClick = onToggleMute
                 )
 
+                // Unified Volume Pill matching cockpit cards
                 Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onVolDown() }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "−",
                             color = Color(0xFF4F8FF7),
-                            fontSize = 25.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
 
                     Text(
                         text = if (isMuted) "OFF" else "$volumePct%",
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp
                     )
 
@@ -555,13 +583,13 @@ fun OemAutomotiveControlBar(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onVolUp() }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "+",
                             color = Color(0xFFE05252),
-                            fontSize = 24.sp,
+                            fontSize = 23.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -570,89 +598,90 @@ fun OemAutomotiveControlBar(
                 OemStatusTextButton(
                     label = "DIM",
                     active = isNightDimmed,
-                    activeColor = theme.accentGlow,
+                    activeColor = techCyan,
                     onClick = onToggleNightDim
                 )
 
-                // ADDED LIVE TEMPERATURE DISPLAY (Outside Temp from GPS Weather)
+                // Live Outside Temperature Pill
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Color.White.copy(alpha = 0.06f))
-                        .border(0.8.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                        .border(0.8.dp, techCyan.copy(alpha = 0.30f), RoundedCornerShape(14.dp))
                         .clickable { onRefreshWeather() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .padding(horizontal = 11.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = weather?.icon ?: Icons.Rounded.Thermostat,
                         contentDescription = "Outside Temperature",
-                        tint = theme.accentGlow,
+                        tint = Color(0xFF7DD3FC),
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = if (weather?.tempC != null) "${weather.tempC}°C" else "--°C",
-                        color = Color.White.copy(alpha = 0.92f),
+                        color = Color.White.copy(alpha = 0.94f),
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // CENTER ILLUMINATED OEM CAPSULE (All Apps)
+            // CENTER ILLUMINATED APPS CAPSULE (Matches upper cockpit metallic glass cards)
             Box(
                 modifier = Modifier
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.16f),
-                                Color.White.copy(alpha = 0.05f),
-                                Color.White.copy(alpha = 0.14f)
+                                techCyan.copy(alpha = 0.24f),
+                                theme.surfaceElevated.copy(alpha = 0.92f)
                             )
                         )
                     )
-                    .border(1.dp, Color.White.copy(alpha = 0.34f), RoundedCornerShape(12.dp))
+                    .border(1.dp, techCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
                     .clickable { onOpenApps() }
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .width(14.dp)
-                            .height(2.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.75f))
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Rounded.Apps,
+                        imageVector = Icons.Rounded.GridView,
                         contentDescription = "All Apps",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Apps",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
                     )
                 }
             }
 
-            // RIGHT CLUSTER: DARK/SAT + U5/WATCH + AMBIENT + SETTINGS (Matching uploaded bottom bar)
+            // RIGHT CLUSTER: DARK/SAT + U5/WATCH + AMBIENT + SETTINGS
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 OemStatusTextButton(
                     label = if (isSatellite) "SAT" else "DARK",
                     active = isSatellite,
-                    activeColor = Color(0xFF38BDF8),
+                    activeColor = techCyan,
                     onClick = onToggleSatellite
                 )
 
                 OemStatusTextButton(
                     label = if (showCarWidget) "U5" else "WATCH",
                     active = showCarWidget,
-                    activeColor = theme.accentGlow,
+                    activeColor = techCyan,
                     onClick = onToggleCarOrWatch
                 )
 
