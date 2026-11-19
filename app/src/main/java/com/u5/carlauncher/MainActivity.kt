@@ -1,5 +1,6 @@
 package com.u5.carlauncher
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -7,10 +8,11 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Bundle
 import android.provider.Settings
-import android.webkit.GeolocationPermissions
-import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -140,7 +143,7 @@ fun U5LuxuryCockpit() {
                 onThemeClick = { showThemeModal = true }
             )
 
-            // 2. CENTER-LEFT: EMBEDDED LIVE INTERACTIVE MAP CARD
+            // 2. CENTER-LEFT: ZERO-CDN GOOGLE MAPS ENGINE + NATIVE GPS
             EmbeddedNavigationMapCard(
                 theme = theme,
                 finish = finish,
@@ -362,7 +365,7 @@ fun CarPlayDockBadge(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "MissingPermission")
 @Composable
 fun EmbeddedNavigationMapCard(
     theme: LuxuryThemeType,
@@ -370,95 +373,221 @@ fun EmbeddedNavigationMapCard(
     modifier: Modifier = Modifier,
     onOpenGoogleMaps: () -> Unit
 ) {
+    val context = LocalContext.current
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var isSatellite by remember { mutableStateOf(false) }
+    var carLat by remember { mutableStateOf(55.7093) }
+    var carLon by remember { mutableStateOf(9.5357) }
+
+    // Native Android GPS + Network Location Listener -> pushes directly into the WebView map
+    DisposableEffect(context) {
+        val hasFine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                carLat = location.latitude
+                carLon = location.longitude
+                webViewRef?.evaluateJavascript(
+                    "if(window.updateCarGps){window.updateCarGps(${location.latitude}, ${location.longitude});}",
+                    null
+                )
+            }
+        }
+
+        if ((hasFine || hasCoarse) && locManager != null) {
+            runCatching {
+                val lastGps = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                val lastNet = locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                val best = lastGps ?: lastNet
+                if (best != null) {
+                    carLat = best.latitude
+                    carLon = best.longitude
+                }
+                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2500L, 5f, listener)
+                }
+                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 15f, listener)
+                }
+            }
+        }
+
+        onDispose {
+            runCatching { locManager?.removeUpdates(listener) }
+        }
+    }
+
     Box(
         modifier = modifier
             .luxuryCardSurface(theme, finish, cornerRadius = 28.dp)
             .clip(RoundedCornerShape(28.dp))
     ) {
+        // 100% Self-Contained Google Maps Tile Engine (Zero external CDN dependencies!)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    setBackgroundColor(android.graphics.Color.parseColor("#0F141C"))
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    settings.setGeolocationEnabled(true)
                     settings.cacheMode = WebSettings.LOAD_DEFAULT
-                    webViewClient = WebViewClient()
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onGeolocationPermissionsShowPrompt(
-                            origin: String?,
-                            callback: GeolocationPermissions.Callback?
-                        ) {
-                            callback?.invoke(origin, true, false)
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    settings.userAgentString =
+                        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            view?.evaluateJavascript(
+                                "if(window.updateCarGps){window.updateCarGps($carLat, $carLon, true);}",
+                                null
+                            )
                         }
                     }
                     loadDataWithBaseURL(
-                        "https://unpkg.com",
-                        DARK_COCKPIT_MAP_HTML,
+                        "https://maps.google.com/",
+                        GOOGLE_MAPS_SELF_CONTAINED_HTML,
                         "text/html",
                         "UTF-8",
                         null
                     )
+                    webViewRef = this
                 }
             }
         )
 
+        // Top Floating CarPlay-Style Navigation Bar
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xD911141B))
-                    .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+                    .background(Color(0xE011141B))
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp))
                     .clickable { onOpenGoogleMaps() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Navigation,
-                    contentDescription = "Maps",
+                    contentDescription = "Google Maps",
                     tint = Color(0xFF4ADE80),
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
                 Text(
                     text = "Google Maps",
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xE61A73E8))
-                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(20.dp))
-                    .clickable { onOpenGoogleMaps() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.OpenInFull,
-                    contentDescription = "Open Full Maps",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "Navigate",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // Dark / Satellite Mode Toggle
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xE011141B))
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                        .clickable {
+                            isSatellite = !isSatellite
+                            webViewRef?.evaluateJavascript(
+                                "if(window.setMapStyle){window.setMapStyle(${if (isSatellite) "'sat'" else "'dark'"});}",
+                                null
+                            )
+                        }
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isSatellite) "Dark" else "Sat",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Fullscreen Google Maps Launch Button
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xEB1A73E8))
+                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(18.dp))
+                        .clickable { onOpenGoogleMaps() }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.OpenInFull,
+                        contentDescription = "Navigate",
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Text(
+                        text = "Navigate",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
+
+        // Bottom-Right Floating Map Controls (+, -, Re-center GPS)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MapControlPill(icon = Icons.Rounded.Add) {
+                webViewRef?.evaluateJavascript("if(window.zoomDelta){window.zoomDelta(1);}", null)
+            }
+            MapControlPill(icon = Icons.Rounded.Remove) {
+                webViewRef?.evaluateJavascript("if(window.zoomDelta){window.zoomDelta(-1);}", null)
+            }
+            MapControlPill(icon = Icons.Rounded.MyLocation, accent = Color(0xFF38BDF8)) {
+                webViewRef?.evaluateJavascript("if(window.recenterMap){window.recenterMap();}", null)
+            }
+        }
+    }
+}
+
+@Composable
+fun MapControlPill(
+    icon: ImageVector,
+    accent: Color = Color.White,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xE011141B))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(14.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
 
@@ -1092,51 +1221,198 @@ private fun Drawable.toImageBitmap(): ImageBitmap {
     return bitmap.asImageBitmap()
 }
 
-private const val DARK_COCKPIT_MAP_HTML = """
+// Zero-CDN, 100% self-contained Google Maps tile engine (no unpkg/jsdelivr required!)
+private const val GOOGLE_MAPS_SELF_CONTAINED_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f141c; }
-  .leaflet-control-attribution { display: none !important; }
-  .leaflet-control-zoom { margin-top: 74px !important; margin-left: 16px !important; border: none !important; }
-  .leaflet-control-zoom a {
-    background: rgba(17, 20, 27, 0.88) !important;
-    color: #fff !important;
-    border: 1px solid rgba(255,255,255,0.18) !important;
-    width: 38px !important; height: 38px !important; line-height: 38px !important;
-    font-size: 20px !important; border-radius: 12px !important; margin-bottom: 6px !important;
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #0f141c; touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  #map {
+    position: relative; width: 100%; height: 100%; overflow: hidden;
+  }
+  #tiles {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    transition: filter 0.25s ease;
+  }
+  #tiles.dark-mode {
+    filter: invert(93%) hue-rotate(180deg) brightness(94%) contrast(92%) saturate(85%);
+  }
+  .tile {
+    position: absolute; width: 256px; height: 256px;
+    pointer-events: none; image-rendering: auto;
+  }
+  #car-dot {
+    position: absolute; width: 22px; height: 22px;
+    margin-left: -11px; margin-top: -11px;
+    border-radius: 50%; background: #38BDF8;
+    border: 3.5px solid #ffffff;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.9), 0 0 0 10px rgba(56, 189, 248, 0.22);
+    pointer-events: none; z-index: 10;
   }
 </style>
 </head>
 <body>
-<div id="map"></div>
+<div id="map">
+  <div id="tiles" class="dark-mode"></div>
+  <div id="car-dot"></div>
+</div>
 <script>
-  var map = L.map('map', { zoomControl: true }).setView([55.7093, 9.5357], 14);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    subdomains: 'abcd'
-  }).addTo(map);
+  var TILE_SIZE = 256;
+  var centerLat = 55.7093, centerLon = 9.5357;
+  var carLat = 55.7093, carLon = 9.5357;
+  var zoom = 15;
+  var mapStyle = 'dark'; // 'dark' (Google Road Dark) or 'sat' (Google Hybrid Satellite)
+  var followCar = true;
 
-  var carMarker = L.circleMarker([55.7093, 9.5357], {
-    radius: 9,
-    fillColor: '#38BDF8',
-    color: '#ffffff',
-    weight: 3,
-    opacity: 1,
-    fillOpacity: 1
-  }).addTo(map);
+  var tilesEl = document.getElementById('tiles');
+  var carEl = document.getElementById('car-dot');
+  var mapEl = document.getElementById('map');
+  var tileCache = {};
 
-  if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(function(pos) {
-      var latlng = [pos.coords.latitude, pos.coords.longitude];
-      carMarker.setLatLng(latlng);
-      map.panTo(latlng);
-    }, function() {}, { enableHighAccuracy: true });
+  function latLonToWorld(lat, lon, z) {
+    var scale = TILE_SIZE * Math.pow(2, z);
+    var x = (lon + 180) / 360 * scale;
+    var rad = lat * Math.PI / 180;
+    var y = (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * scale;
+    return { x: x, y: y };
   }
+
+  function worldToLatLon(x, y, z) {
+    var scale = TILE_SIZE * Math.pow(2, z);
+    var lon = x / scale * 360 - 180;
+    var n = Math.PI - 2 * Math.PI * y / scale;
+    var lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    return { lat: lat, lon: lon };
+  }
+
+  function tileUrl(x, y, z) {
+    var s = Math.abs(x + y) % 4;
+    if (mapStyle === 'sat') {
+      return 'https://mt' + s + '.google.com/vt/lyrs=y&x=' + x + '&y=' + y + '&z=' + z;
+    }
+    return 'https://mt' + s + '.google.com/vt/lyrs=m&x=' + x + '&y=' + y + '&z=' + z;
+  }
+
+  function render() {
+    var w = mapEl.clientWidth || 800;
+    var h = mapEl.clientHeight || 600;
+    var centerW = latLonToWorld(centerLat, centerLon, zoom);
+    var topLeftX = centerW.x - w / 2;
+    var topLeftY = centerW.y - h / 2;
+
+    var maxTile = Math.pow(2, zoom);
+    var startCol = Math.floor(topLeftX / TILE_SIZE) - 1;
+    var endCol = Math.floor((topLeftX + w) / TILE_SIZE) + 1;
+    var startRow = Math.floor(topLeftY / TILE_SIZE) - 1;
+    var endRow = Math.floor((topLeftY + h) / TILE_SIZE) + 1;
+
+    var needed = {};
+    for (var col = startCol; col <= endCol; col++) {
+      for (var row = startRow; row <= endRow; row++) {
+        if (row < 0 || row >= maxTile) continue;
+        var wrappedCol = ((col % maxTile) + maxTile) % maxTile;
+        var key = mapStyle + '_' + zoom + '_' + wrappedCol + '_' + row + '_' + col;
+        needed[key] = true;
+
+        var px = Math.round(col * TILE_SIZE - topLeftX);
+        var py = Math.round(row * TILE_SIZE - topLeftY);
+
+        var img = tileCache[key];
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'tile';
+          img.decoding = 'async';
+          img.src = tileUrl(wrappedCol, row, zoom);
+          (function(el, c, r, zLevel) {
+            el.onerror = function() {
+              if (!el.dataset.fallback) {
+                el.dataset.fallback = '1';
+                el.src = 'https://tile.openstreetmap.org/' + zLevel + '/' + c + '/' + r + '.png';
+              }
+            };
+          })(img, wrappedCol, row, zoom);
+          tilesEl.appendChild(img);
+          tileCache[key] = img;
+        }
+        img.style.transform = 'translate3d(' + px + 'px,' + py + 'px,0)';
+      }
+    }
+
+    for (var k in tileCache) {
+      if (!needed[k]) {
+        if (tileCache[k].parentNode) tileCache[k].parentNode.removeChild(tileCache[k]);
+        delete tileCache[k];
+      }
+    }
+
+    var carW = latLonToWorld(carLat, carLon, zoom);
+    carEl.style.left = Math.round(carW.x - topLeftX) + 'px';
+    carEl.style.top = Math.round(carW.y - topLeftY) + 'px';
+  }
+
+  // Drag to pan (touch + mouse)
+  var dragging = false, lastX = 0, lastY = 0;
+  function startDrag(x, y) { dragging = true; followCar = false; lastX = x; lastY = y; }
+  function moveDrag(x, y) {
+    if (!dragging) return;
+    var dx = x - lastX, dy = y - lastY;
+    lastX = x; lastY = y;
+    var c = latLonToWorld(centerLat, centerLon, zoom);
+    var ll = worldToLatLon(c.x - dx, c.y - dy, zoom);
+    centerLat = Math.max(-85, Math.min(85, ll.lat));
+    centerLon = ll.lon;
+    render();
+  }
+  function endDrag() { dragging = false; }
+
+  mapEl.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 1) startDrag(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  mapEl.addEventListener('touchmove', function(e) {
+    if (e.touches.length === 1) moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  mapEl.addEventListener('touchend', endDrag);
+
+  mapEl.addEventListener('mousedown', function(e) { startDrag(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', function(e) { moveDrag(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', endDrag);
+  window.addEventListener('resize', render);
+
+  window.zoomDelta = function(d) {
+    zoom = Math.max(4, Math.min(19, zoom + d));
+    render();
+  };
+
+  window.setMapStyle = function(style) {
+    mapStyle = style;
+    tilesEl.className = (style === 'dark') ? 'dark-mode' : '';
+    render();
+  };
+
+  window.recenterMap = function() {
+    followCar = true;
+    centerLat = carLat;
+    centerLon = carLon;
+    render();
+  };
+
+  window.updateCarGps = function(lat, lon, forceCenter) {
+    carLat = lat;
+    carLon = lon;
+    if (followCar || forceCenter) {
+      centerLat = lat;
+      centerLon = lon;
+    }
+    render();
+  };
+
+  render();
 </script>
 </body>
 </html>

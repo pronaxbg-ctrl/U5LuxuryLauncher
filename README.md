@@ -1,4 +1,5 @@
-# U5 Luxury Car Launcher v3 (Self-Updating Edition)
+# U5 Luxury Car Launcher v4 (Live Google Maps Engine + 1-Tap Updater)
 
-- **Fixed Signing Key (`app/u5_release.p12`)**: Future updates install cleanly over previous versions without uninstalling or losing permissions.
-- **1-Tap In-App Updater**: Open **Theme Studio** (Palette icon) and tap **Check for Updates** to download and install the latest GitHub Release right on your car screen or TV.
+- **Zero-CDN Interactive Google Maps Tile Engine**: Renders crisp Dark Mode Google Maps & Hybrid Satellite directly inside the launcher with zero external script dependencies.
+- **Native Android GPS Tracking**: Feeds live GPS coordinates directly from Android's LocationManager to the glowing blue car marker.
+- **Preserves Fixed Signing Key**: Does not overwrite `app/u5_release.p12`, enabling 1-tap OTA updates from v3.
