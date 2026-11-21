@@ -12,8 +12,8 @@ android {
         applicationId = "com.u5.carlauncher"
         minSdk = 28
         targetSdk = 34
-        versionCode = 10
-        versionName = "4.6.0"
+        versionCode = 12
+        versionName = "4.8.0"
     }
 
     signingConfigs {
@@ -28,7 +28,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = signingConfigs.getByName("release")
         }
         debug {

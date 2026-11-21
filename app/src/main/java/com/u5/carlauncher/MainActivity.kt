@@ -66,6 +66,15 @@ data class InstalledApp(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            try {
+                window.setSustainedPerformanceMode(true)
+            } catch (_: Exception) { }
+        }
         hideSystemBars()
         setContent {
             U5LuxuryCockpit()
@@ -384,6 +393,18 @@ fun U5LuxuryCockpit() {
                     showCarWidget = !showCarWidget
                     prefs.edit().putBoolean("show_car_widget", showCarWidget).apply()
                 },
+                onBack = {
+                    when {
+                        show3DCarModal -> show3DCarModal = false
+                        showAppDrawer -> showAppDrawer = false
+                        showThemeModal -> showThemeModal = false
+                    }
+                },
+                onHome = {
+                    show3DCarModal = false
+                    showAppDrawer = false
+                    showThemeModal = false
+                },
                 onOpenApps = { showAppDrawer = true },
                 onOpenSettings = { launchPackage(context, "com.android.settings") },
                 onOpenTheme = { showThemeModal = true }
@@ -476,6 +497,8 @@ fun OemAutomotiveControlBar(
     onRefreshWeather: () -> Unit,
     onToggleSatellite: () -> Unit,
     onToggleCarOrWatch: () -> Unit,
+    onBack: () -> Unit,
+    onHome: () -> Unit,
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTheme: () -> Unit
@@ -628,40 +651,79 @@ fun OemAutomotiveControlBar(
                 }
             }
 
-            // CENTER ILLUMINATED APPS CAPSULE (Matches upper cockpit metallic glass cards)
-            Box(
-                modifier = Modifier
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                techCyan.copy(alpha = 0.24f),
-                                theme.surfaceElevated.copy(alpha = 0.92f)
-                            )
-                        )
-                    )
-                    .border(1.dp, techCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
-                    .clickable { onOpenApps() }
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
+            // CENTER NAVIGATION CLUSTER: Subtle Back + Illuminated Apps Capsule + Home
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(13.dp))
+                        .clickable { onBack() },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.GridView,
-                        contentDescription = "All Apps",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Rounded.ArrowBackIosNew,
+                        contentDescription = "Back",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(16.dp)
                     )
-                    Text(
-                        text = "Apps",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
+                }
+
+                Box(
+                    modifier = Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    techCyan.copy(alpha = 0.24f),
+                                    theme.surfaceElevated.copy(alpha = 0.92f)
+                                )
+                            )
+                        )
+                        .border(1.dp, techCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+                        .clickable { onOpenApps() }
+                        .padding(horizontal = 22.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.GridView,
+                            contentDescription = "All Apps",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Apps",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(13.dp))
+                        .clickable { onHome() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Home,
+                        contentDescription = "Home",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1722,11 +1784,10 @@ fun loadInstalledApps(context: Context): List<InstalledApp> {
 }
 
 private fun Drawable.toImageBitmap(): ImageBitmap {
-    val w = intrinsicWidth.takeIf { it > 0 } ?: 96
-    val h = intrinsicHeight.takeIf { it > 0 } ?: 96
-    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val size = 72
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    setBounds(0, 0, canvas.width, canvas.height)
+    setBounds(0, 0, size, size)
     draw(canvas)
     return bitmap.asImageBitmap()
 }

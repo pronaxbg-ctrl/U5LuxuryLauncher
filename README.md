@@ -1,4 +1,5 @@
-# U5 Luxury Car Launcher v4.6 (Hologram Blue Aiways U5 Edition)
+# U5 Luxury Car Launcher v4.8 (Native CarPlay-Speed & R8 Release Edition)
 
-- **Background-Free Hologram Blue Aiways U5 (`u5_tech_blue.png`)**: Uses the exact wireframe-mesh blue Aiways U5 render with transparent background, animated cyan tech scan-beam, pulsing under-chassis light ring, and perspective showroom grid.
-- **Unified Cockpit Bottom Control Bar**: Restyled bottom bar with matching metallic glass borders, blue tech accent glow, unified volume pill (`−` / `%` / `+`), `DIM`, live outside temperature (`°C`), illuminated `Apps` pill, `DARK`/`SAT`, `U5`/`WATCH`, `AMBIENT`, and `SETTINGS`.
+- **R8 Code & Resource Shrinking + Hardware Acceleration**: Enabled `isMinifyEnabled = true`, `isShrinkResources = true`, `FLAG_HARDWARE_ACCELERATED`, and `setSustainedPerformanceMode(true)` so the Ottocast P3 Pro maintains steady frame pacing without thermal throttling.
+- **RGB_565 Map Tiles & 72px Cached App Icons**: Halves GPU texture memory bandwidth for map panning and makes the All Apps drawer open instantaneously.
+- **1-Command Ottocast CarPlay Stream & GPU Tuning (`optimize_ottocast_carplay.sh`)**: Sets `1920x720` @ `340 DPI`, `0.5x` native-feel system animations, hardware 2D GPU compositing, and background RAM cleanup.

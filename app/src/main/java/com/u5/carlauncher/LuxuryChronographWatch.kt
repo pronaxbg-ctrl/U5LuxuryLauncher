@@ -47,7 +47,7 @@ fun LuxuryChronographCard(
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
-            delay(100L)
+            delay(1000L)
         }
     }
 

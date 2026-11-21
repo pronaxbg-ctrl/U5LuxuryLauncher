@@ -79,7 +79,10 @@ object NativeTileCache {
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
             }
             if (conn.responseCode == 200) {
-                conn.inputStream.use { BitmapFactory.decodeStream(it) }
+                val opts = BitmapFactory.Options().apply {
+                    inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                }
+                conn.inputStream.use { BitmapFactory.decodeStream(it, null, opts) }
             } else {
                 null
             }

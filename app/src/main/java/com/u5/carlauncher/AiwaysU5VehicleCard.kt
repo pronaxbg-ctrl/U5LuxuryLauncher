@@ -3,7 +3,8 @@
 package com.u5.carlauncher
 
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,9 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -78,132 +79,106 @@ private fun bearingToCompass(bearing: Float): String {
     return dirs[((normalized + 22.5f) / 45f).toInt() % 8]
 }
 
+/**
+ * Hardware-cached static Blue Tech Showroom Grid & Neon Platform Ring.
+ * Uses drawWithCache so brushes and coordinates are allocated once per size change,
+ * eliminating continuous 60fps GPU overdraw on the Ottocast P3 Pro.
+ */
 @Composable
 fun BlueTechShowroomStage(
     accentColor: Color,
     accentGlow: Color,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "u5_tech_fx")
-    val scanProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "scan_sweep"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.62f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_glow"
-    )
+    Box(
+        modifier = modifier.drawWithCache {
+            val w = size.width
+            val h = size.height
+            val horizonY = h * 0.56f
+            val bottomY = h * 0.94f
+            val cx = w / 2f
 
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val horizonY = h * 0.56f
-        val bottomY = h * 0.94f
-        val cx = w / 2f
+            val techCyan = Color(0xFF38BDF8)
+            val deepTechBlue = Color(0xFF0284C7)
 
-        val techCyan = Color(0xFF38BDF8)
-        val deepTechBlue = Color(0xFF0284C7)
-
-        // 1. Ambient Holographic Blue Halo behind the Aiways U5
-        drawOval(
-            brush = Brush.radialGradient(
+            val haloBrush = Brush.radialGradient(
                 colors = listOf(
-                    techCyan.copy(alpha = pulseAlpha * 0.55f),
-                    deepTechBlue.copy(alpha = 0.16f),
+                    techCyan.copy(alpha = 0.28f),
+                    deepTechBlue.copy(alpha = 0.12f),
                     Color.Transparent
                 ),
                 center = Offset(cx, h * 0.54f),
-                radius = w * 0.48f
-            ),
-            topLeft = Offset(cx - w * 0.48f, h * 0.14f),
-            size = Size(w * 0.96f, h * 0.78f)
-        )
-
-        // 2. Perspective Showroom Platform Grid
-        val rows = 6
-        for (i in 0..rows) {
-            val t = i.toFloat() / rows
-            val eased = t * t
-            val y = horizonY + (bottomY - horizonY) * eased
-            val halfSpan = w * (0.28f + 0.22f * eased)
-            drawLine(
-                color = techCyan.copy(alpha = 0.12f + 0.28f * t),
-                start = Offset(cx - halfSpan, y),
-                end = Offset(cx + halfSpan, y),
-                strokeWidth = 1.2f
+                radius = (w * 0.48f).coerceAtLeast(1f)
             )
-        }
-
-        val cols = 7
-        for (i in -cols..cols) {
-            val frac = i.toFloat() / cols
-            val topX = cx + frac * w * 0.28f
-            val botX = cx + frac * w * 0.50f
-            drawLine(
-                color = techCyan.copy(alpha = 0.24f),
-                start = Offset(topX, horizonY),
-                end = Offset(botX, bottomY),
-                strokeWidth = 1.2f
-            )
-        }
-
-        // 3. Glowing Cyan Tech Ring & Under-Chassis Neon Reflection
-        val ringRectTopLeft = Offset(cx - w * 0.43f, h * 0.65f)
-        val ringRectSize = Size(w * 0.86f, h * 0.24f)
-        drawOval(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.88f), Color.Transparent),
+            val shadowBrush = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent),
                 center = Offset(cx, h * 0.77f),
-                radius = w * 0.41f
-            ),
-            topLeft = ringRectTopLeft,
-            size = ringRectSize
-        )
-        drawOval(
-            brush = Brush.horizontalGradient(
+                radius = (w * 0.41f).coerceAtLeast(1f)
+            )
+            val ringStrokeBrush = Brush.horizontalGradient(
                 colors = listOf(
                     Color.Transparent,
-                    techCyan.copy(alpha = pulseAlpha),
-                    accentGlow.copy(alpha = pulseAlpha * 0.9f),
-                    techCyan.copy(alpha = pulseAlpha),
+                    techCyan.copy(alpha = 0.52f),
+                    accentGlow.copy(alpha = 0.58f),
+                    techCyan.copy(alpha = 0.52f),
                     Color.Transparent
                 )
-            ),
-            topLeft = ringRectTopLeft,
-            size = ringRectSize,
-            style = Stroke(width = 2.2f)
-        )
+            )
 
-        // 4. Subtle Sweeping Cyan Tech Scan Beam across the platform
-        val scanX = w * (0.12f + 0.76f * scanProgress)
-        drawLine(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    techCyan.copy(alpha = 0.55f),
-                    Color.White.copy(alpha = 0.80f),
-                    techCyan.copy(alpha = 0.45f),
-                    Color.Transparent
-                ),
-                startY = h * 0.16f,
-                endY = h * 0.86f
-            ),
-            start = Offset(scanX, h * 0.16f),
-            end = Offset(scanX - w * 0.06f, h * 0.86f),
-            strokeWidth = 2.0f,
-            blendMode = BlendMode.Plus
-        )
-    }
+            val ringRectTopLeft = Offset(cx - w * 0.43f, h * 0.65f)
+            val ringRectSize = Size(w * 0.86f, h * 0.24f)
+
+            onDrawBehind {
+                // 1. Ambient Holographic Blue Halo
+                drawOval(
+                    brush = haloBrush,
+                    topLeft = Offset(cx - w * 0.48f, h * 0.14f),
+                    size = Size(w * 0.96f, h * 0.78f)
+                )
+
+                // 2. Perspective Showroom Platform Grid (5 rows x 11 cols)
+                val rows = 5
+                for (i in 0..rows) {
+                    val t = i.toFloat() / rows
+                    val eased = t * t
+                    val y = horizonY + (bottomY - horizonY) * eased
+                    val halfSpan = w * (0.28f + 0.22f * eased)
+                    drawLine(
+                        color = techCyan.copy(alpha = 0.12f + 0.24f * t),
+                        start = Offset(cx - halfSpan, y),
+                        end = Offset(cx + halfSpan, y),
+                        strokeWidth = 1.1f
+                    )
+                }
+
+                val cols = 5
+                for (i in -cols..cols) {
+                    val frac = i.toFloat() / cols
+                    val topX = cx + frac * w * 0.28f
+                    val botX = cx + frac * w * 0.50f
+                    drawLine(
+                        color = techCyan.copy(alpha = 0.20f),
+                        start = Offset(topX, horizonY),
+                        end = Offset(botX, bottomY),
+                        strokeWidth = 1.1f
+                    )
+                }
+
+                // 3. Under-Chassis Shadow & Glowing Cyan Tech Ring
+                drawOval(
+                    brush = shadowBrush,
+                    topLeft = ringRectTopLeft,
+                    size = ringRectSize
+                )
+                drawOval(
+                    brush = ringStrokeBrush,
+                    topLeft = ringRectTopLeft,
+                    size = ringRectSize,
+                    style = Stroke(width = 2.0f)
+                )
+            }
+        }
+    )
 }
 
 @Composable
@@ -389,7 +364,7 @@ fun AiwaysU5CockpitCard(
                     }
                 }
 
-                // CENTER STAGE: TRANSPARENT BLUE TECH AIWAYS U5 + ANIMATED HOLOGRAPHIC PLATFORM
+                // CENTER STAGE: COMPRESSED TRANSPARENT BLUE TECH AIWAYS U5
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -446,9 +421,7 @@ fun AiwaysU5CockpitCard(
                                 style = stroke
                             )
                             drawArc(
-                                brush = Brush.sweepGradient(
-                                    colors = listOf(Color(0xFF0EA5E9), Color(0xFF7DD3FC), Color(0xFF0EA5E9))
-                                ),
+                                color = Color(0xFF38BDF8),
                                 startAngle = -90f,
                                 sweepAngle = 360f * (batteryPct.coerceIn(0, 100) / 100f),
                                 useCenter = false,
@@ -536,15 +509,15 @@ fun AiwaysU53DInspectorOverlay(
 ) {
     var targetTiltY by remember { mutableFloatStateOf(0f) }
     var targetTiltX by remember { mutableFloatStateOf(0f) }
-    val tiltY by animateFloatAsState(targetValue = targetTiltY, animationSpec = spring(dampingRatio = 0.65f), label = "tiltY")
-    val tiltX by animateFloatAsState(targetValue = targetTiltX, animationSpec = spring(dampingRatio = 0.65f), label = "tiltX")
+    val tiltY by animateFloatAsState(targetValue = targetTiltY, animationSpec = spring(dampingRatio = 0.72f), label = "tiltY")
+    val tiltX by animateFloatAsState(targetValue = targetTiltX, animationSpec = spring(dampingRatio = 0.72f), label = "tiltX")
 
     val estRangeKm = ((batteryPct.coerceIn(0, 100) / 100f) * 400f).roundToInt()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF006080D))
+            .background(Color(0xF206080D))
             .padding(22.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -614,11 +587,7 @@ fun AiwaysU53DInspectorOverlay(
                         .weight(1.25f)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(Color(0xFF10243E), Color(0xFF070B12))
-                            )
-                        )
+                        .background(Color(0xFF0A1220))
                         .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f), RoundedCornerShape(22.dp))
                         .padding(14.dp),
                     verticalArrangement = Arrangement.SpaceBetween
@@ -672,7 +641,7 @@ fun AiwaysU53DInspectorOverlay(
                         )
                     }
 
-                    // Render Style Switcher (Hologram Blue, Electric Blue, Glacier White)
+                    // Render Style Switcher
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,

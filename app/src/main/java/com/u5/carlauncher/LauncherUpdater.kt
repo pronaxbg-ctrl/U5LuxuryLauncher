@@ -35,9 +35,9 @@ object LauncherUpdater {
 
     fun getCurrentVersionName(context: Context): String {
         return try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "4.6.0"
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "4.8.0"
         } catch (_: Exception) {
-            "4.6.0"
+            "4.8.0"
         }
     }
 
