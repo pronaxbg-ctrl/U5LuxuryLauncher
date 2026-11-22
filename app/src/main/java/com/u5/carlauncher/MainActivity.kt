@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -13,6 +14,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.media.AudioManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -27,6 +29,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
@@ -38,11 +43,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -120,7 +129,7 @@ fun U5LuxuryCockpit() {
         mutableStateOf(U5PaintColor.fromId(prefs.getString("u5_paint_id", null)))
     }
     var batteryPct by remember {
-        mutableIntStateOf(prefs.getInt("u5_battery_pct", 92))
+        mutableIntStateOf(readPhoneBatteryPct(context))
     }
     var tripKm by remember {
         mutableFloatStateOf(prefs.getFloat("u5_trip_km", 0f))
@@ -215,12 +224,20 @@ fun U5LuxuryCockpit() {
     }
 
     val mediaState by MediaRepository.state.collectAsState()
-    var currentTime by remember { mutableStateOf("20:15") }
+    var currentHour by remember { mutableStateOf("20") }
+    var currentMinute by remember { mutableStateOf("15") }
+    var currentDateLabel by remember { mutableStateOf("MON • 23 NOV") }
 
     LaunchedEffect(Unit) {
-        val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val hourFmt = SimpleDateFormat("HH", Locale.getDefault())
+        val minFmt = SimpleDateFormat("mm", Locale.getDefault())
+        val dateFmt = SimpleDateFormat("EEE • d MMM", Locale.ENGLISH)
         while (true) {
-            currentTime = timeFmt.format(Date())
+            val now = Date()
+            currentHour = hourFmt.format(now)
+            currentMinute = minFmt.format(now)
+            currentDateLabel = dateFmt.format(now).uppercase(Locale.ENGLISH)
+            batteryPct = readPhoneBatteryPct(context)
             MediaRepository.refreshSessions(context)
             volumePct = readVolumePct()
             isMuted = volumePct == 0
@@ -252,20 +269,33 @@ fun U5LuxuryCockpit() {
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. LEFT CARPLAY-STYLE DOCK
+                // 1. CLEANED-UP LEFT DOCK (Upgraded Luxury Watch + Core Apps, No Duplicate Weather/Ambient)
                 CarPlayLuxuryDock(
-                    time = currentTime,
-                    weather = liveWeather,
+                    hour = currentHour,
+                    minute = currentMinute,
+                    dateLabel = currentDateLabel,
                     theme = theme,
                     finish = finish,
                     onMapsClick = { launchPackage(context, "com.google.android.apps.maps") },
+                    onSamsungMusicClick = {
+                        if (context.packageManager.getLaunchIntentForPackage("com.sec.android.app.music") != null) {
+                            launchPackage(context, "com.sec.android.app.music")
+                        } else {
+                            launchPackage(context, "com.spotify.music")
+                        }
+                    },
                     onSpotifyClick = { launchPackage(context, "com.spotify.music") },
-                    onYtMusicClick = { launchPackage(context, "com.google.android.apps.youtube.music") },
-                    onAppsClick = { showAppDrawer = true },
-                    onThemeClick = { showThemeModal = true }
+                    onPhoneClick = {
+                        if (context.packageManager.getLaunchIntentForPackage("com.samsung.android.dialer") != null) {
+                            launchPackage(context, "com.samsung.android.dialer")
+                        } else {
+                            launchPackage(context, "com.android.dialer")
+                        }
+                    },
+                    onAppsClick = { showAppDrawer = true }
                 )
 
-                // 2. CENTER-LEFT: NATIVE GOOGLE MAPS
+                // 2. CENTER-LEFT: NATIVE GOOGLE MAPS WITH IN-APP ADDRESS SEARCH BAR
                 EmbeddedNavigationMapCard(
                     carLat = carLat,
                     carLon = carLon,
@@ -282,7 +312,7 @@ fun U5LuxuryCockpit() {
                     onNavigateQuery = { query -> launchGoogleMapsNavigation(context, query) }
                 )
 
-                // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + AIWAYS U5 VEHICLE CARD / WATCH (BOTTOM)
+                // 3. RIGHT COLUMN: ONE UI MUSIC PLAYER (TOP) + AIWAYS U5 / LUXURY WATCH (BOTTOM)
                 Column(
                     modifier = Modifier
                         .weight(1.05f)
@@ -304,32 +334,77 @@ fun U5LuxuryCockpit() {
                             }
                         },
                         onOpenMusicApp = {
-                            if (mediaState.sourceApp.contains("YT", ignoreCase = true)) {
-                                launchPackage(context, "com.google.android.apps.youtube.music")
-                            } else {
-                                launchPackage(context, "com.spotify.music")
+                            when {
+                                mediaState.sourceApp.contains("Samsung", ignoreCase = true) ->
+                                    launchPackage(context, "com.sec.android.app.music")
+                                mediaState.sourceApp.contains("YT", ignoreCase = true) ->
+                                    launchPackage(context, "com.google.android.apps.youtube.music")
+                                else -> launchPackage(context, "com.spotify.music")
                             }
                         }
                     )
 
                     if (showCarWidget) {
-                        AiwaysU5CockpitCard(
-                            carSpeedKmh = carSpeedKmh,
-                            carBearing = carBearing,
-                            tripKm = tripKm,
-                            batteryPct = batteryPct,
-                            paintColor = paintColor,
-                            theme = theme,
-                            finish = finish,
-                            onLongPress3D = { show3DCarModal = true },
-                            onSwitchToWatch = {
-                                showCarWidget = false
-                                prefs.edit().putBoolean("show_car_widget", false).apply()
-                            },
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1.14f)
-                        )
+                        ) {
+                            AiwaysU5CockpitCard(
+                                carSpeedKmh = carSpeedKmh,
+                                carBearing = carBearing,
+                                tripKm = tripKm,
+                                batteryPct = batteryPct,
+                                paintColor = paintColor,
+                                theme = theme,
+                                finish = finish,
+                                onLongPress3D = { show3DCarModal = true },
+                                onSwitchToWatch = {
+                                    showCarWidget = false
+                                    prefs.edit().putBoolean("show_car_widget", false).apply()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Live S25 Ultra & GPS Telemetry Pill replacing mismatched EV battery/range
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xEB0B0E14))
+                                    .border(1.dp, theme.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TelemetryMetricItem(
+                                    icon = Icons.Rounded.Speed,
+                                    label = "GPS",
+                                    value = "$carSpeedKmh km/h",
+                                    accent = theme.accentGlow
+                                )
+                                TelemetryMetricItem(
+                                    icon = Icons.Rounded.Explore,
+                                    label = "HDG",
+                                    value = bearingToCardinal(carBearing),
+                                    accent = Color(0xFF38BDF8)
+                                )
+                                TelemetryMetricItem(
+                                    icon = Icons.Rounded.Route,
+                                    label = "TRIP",
+                                    value = String.format(Locale.US, "%.1f km", tripKm),
+                                    accent = Color.White
+                                )
+                                TelemetryMetricItem(
+                                    icon = Icons.Rounded.BatteryChargingFull,
+                                    label = "S25",
+                                    value = "$batteryPct%",
+                                    accent = Color(0xFF4ADE80)
+                                )
+                            }
+                        }
                     } else {
                         LuxuryChronographCard(
                             isWhiteDial = isWhiteWatchDial,
@@ -351,7 +426,7 @@ fun U5LuxuryCockpit() {
                 }
             }
 
-            // 4. SLEEK OEM BOTTOM CONTROL BAR (Matching uploaded layout + Live Outside Temperature!)
+            // 4. SLEEK OEM BOTTOM CONTROL BAR (Single Weather + Single Ambient Studio Trigger)
             OemAutomotiveControlBar(
                 volumePct = volumePct,
                 isMuted = isMuted,
@@ -482,6 +557,41 @@ fun U5LuxuryCockpit() {
 }
 
 @Composable
+fun TelemetryMetricItem(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    accent: Color
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = accent,
+            modifier = Modifier.size(14.dp)
+        )
+        Column {
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp
+            )
+            Text(
+                text = value,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
 fun OemAutomotiveControlBar(
     volumePct: Int,
     isMuted: Boolean,
@@ -532,7 +642,6 @@ fun OemAutomotiveControlBar(
                 shape = RoundedCornerShape(22.dp)
             )
     ) {
-        // Subtle blue tech bottom accent glow line across the bar
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -556,7 +665,6 @@ fun OemAutomotiveControlBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // LEFT CLUSTER: Mute + Blue (-) / Volume % / Red (+) + DIM + Outside Temperature
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -569,7 +677,6 @@ fun OemAutomotiveControlBar(
                     onClick = onToggleMute
                 )
 
-                // Unified Volume Pill matching cockpit cards
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
@@ -625,7 +732,6 @@ fun OemAutomotiveControlBar(
                     onClick = onToggleNightDim
                 )
 
-                // Live Outside Temperature Pill
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
@@ -651,7 +757,6 @@ fun OemAutomotiveControlBar(
                 }
             }
 
-            // CENTER NAVIGATION CLUSTER: Subtle Back + Illuminated Apps Capsule + Home
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -728,7 +833,6 @@ fun OemAutomotiveControlBar(
                 }
             }
 
-            // RIGHT CLUSTER: DARK/SAT + U5/WATCH + AMBIENT + SETTINGS
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -853,64 +957,86 @@ fun OemStatusTextButton(
 
 @Composable
 fun CarPlayLuxuryDock(
-    time: String,
-    weather: LiveWeather?,
+    hour: String,
+    minute: String,
+    dateLabel: String,
     theme: LuxuryThemeType,
     finish: ButtonFinish,
     onMapsClick: () -> Unit,
+    onSamsungMusicClick: () -> Unit,
     onSpotifyClick: () -> Unit,
-    onYtMusicClick: () -> Unit,
-    onAppsClick: () -> Unit,
-    onThemeClick: () -> Unit
+    onPhoneClick: () -> Unit,
+    onAppsClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
-            .width(86.dp)
+            .width(92.dp)
             .fillMaxHeight()
             .luxuryCardSurface(theme, finish, cornerRadius = 26.dp)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 10.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = time,
-                color = Color.White,
-                fontSize = 21.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp
-            )
-            if (weather?.tempC != null) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Icon(
-                        imageVector = weather.icon,
-                        contentDescription = "Weather",
-                        tint = theme.accentGlow,
-                        modifier = Modifier.size(14.dp)
+        // UPGRADED LUXURY TITANIUM WATCH BEZEL (No duplicate weather/temperature)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xFF1D2027), Color(0xFF101216))
                     )
-                    Text(
-                        text = "${weather.tempC}°",
-                        color = Color.White.copy(alpha = 0.88f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 5.dp)
-                        .width(24.dp)
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(theme.accent)
+                )
+                .border(1.dp, theme.accent.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                .padding(vertical = 8.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = hour,
+                    color = Color(0xFFF3F5F8),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp
+                )
+                Text(
+                    text = ":",
+                    color = theme.accentGlow,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 1.dp)
+                )
+                Text(
+                    text = minute,
+                    color = Color(0xFFF3F5F8),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp
                 )
             }
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .width(34.dp)
+                    .height(2.dp)
+                    .clip(CircleShape)
+                    .background(Brush.horizontalGradient(listOf(theme.accent, theme.accentGlow)))
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = dateLabel,
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp,
+                maxLines = 1
+            )
         }
 
+        // CORE APP SHORTCUTS (No duplicate Ambient button)
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -921,14 +1047,19 @@ fun CarPlayLuxuryDock(
                 onClick = onMapsClick
             )
             CarPlayDockBadge(
+                icon = Icons.Rounded.MusicNote,
+                gradient = listOf(Color(0xFF6366F1), Color(0xFF3B82F6)),
+                onClick = onSamsungMusicClick
+            )
+            CarPlayDockBadge(
                 icon = Icons.Rounded.GraphicEq,
                 gradient = listOf(Color(0xFF1ED760), Color(0xFF15803D)),
                 onClick = onSpotifyClick
             )
             CarPlayDockBadge(
-                icon = Icons.Rounded.PlayArrow,
-                gradient = listOf(Color(0xFFFF3B30), Color(0xFFB91C1C)),
-                onClick = onYtMusicClick
+                icon = Icons.Rounded.Call,
+                gradient = listOf(Color(0xFF10B981), Color(0xFF047857)),
+                onClick = onPhoneClick
             )
             CarPlayDockBadge(
                 icon = Icons.Rounded.GridView,
@@ -936,12 +1067,6 @@ fun CarPlayLuxuryDock(
                 onClick = onAppsClick
             )
         }
-
-        CarPlayDockBadge(
-            icon = Icons.Rounded.Palette,
-            gradient = listOf(theme.accent, theme.accentSecondary),
-            onClick = onThemeClick
-        )
     }
 }
 
@@ -953,7 +1078,7 @@ fun CarPlayDockBadge(
 ) {
     Box(
         modifier = Modifier
-            .size(50.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(Brush.linearGradient(gradient))
             .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
@@ -964,7 +1089,7 @@ fun CarPlayDockBadge(
             imageVector = icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(26.dp)
+            modifier = Modifier.size(24.dp)
         )
     }
 }
@@ -983,15 +1108,27 @@ fun EmbeddedNavigationMapCard(
     onOpenGoogleMaps: () -> Unit,
     onNavigateQuery: (String) -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     var zoom by remember { mutableIntStateOf(15) }
     var followCar by remember { mutableStateOf(true) }
     var centerLat by remember { mutableDoubleStateOf(carLat) }
     var centerLon by remember { mutableDoubleStateOf(carLon) }
+    var destinationText by remember { mutableStateOf("") }
 
     LaunchedEffect(carLat, carLon, followCar) {
         if (followCar) {
             centerLat = carLat
             centerLon = carLon
+        }
+    }
+
+    fun submitSearch() {
+        val clean = destinationText.trim()
+        if (clean.isNotEmpty()) {
+            focusManager.clearFocus()
+            onNavigateQuery(clean)
+        } else {
+            onOpenGoogleMaps()
         }
     }
 
@@ -1002,7 +1139,7 @@ fun EmbeddedNavigationMapCard(
     ) {
         NativeGoogleMapView(
             centerLat = centerLat,
-            centerLon = centerLon,
+            centerLon = carLon,
             carLat = carLat,
             carLon = carLon,
             carBearing = carBearing,
@@ -1016,84 +1153,98 @@ fun EmbeddedNavigationMapCard(
             modifier = Modifier.fillMaxSize()
         )
 
+        // TOP IN-APP ADDRESS SEARCH BAR + NAVIGATE ACTION
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xE011141B))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
-                    .clickable { onOpenGoogleMaps() }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .weight(1f)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xEB0E1117))
+                    .border(1.dp, theme.accent.copy(alpha = 0.50f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Navigation,
-                    contentDescription = "Google Maps",
-                    tint = Color(0xFF4ADE80),
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = "Search Address",
+                    tint = theme.accentGlow,
                     modifier = Modifier.size(18.dp)
                 )
-                Text(
-                    text = "Google Maps",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
+
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (destinationText.isEmpty()) {
+                        Text(
+                            text = "Enter address or place...",
+                            color = Color.White.copy(alpha = 0.52f),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    BasicTextField(
+                        value = destinationText,
+                        onValueChange = { destinationText = it },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        cursorBrush = SolidColor(theme.accentGlow),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (destinationText.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Clear",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .size(17.dp)
+                            .clickable { destinationText = "" }
+                    )
+                }
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Brush.horizontalGradient(listOf(theme.accent, theme.accentSecondary)))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+                    .clickable { submitSearch() }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xE011141B))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
-                        .clickable { onToggleSatellite() }
-                        .padding(horizontal = 11.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = if (isSatellite) "Dark" else "Sat",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xEB1A73E8))
-                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
-                        .clickable { onOpenGoogleMaps() }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.OpenInFull,
-                        contentDescription = "Navigate",
-                        tint = Color.White,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Text(
-                        text = "Navigate",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Rounded.Navigation,
+                    contentDescription = "Go",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Go",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
+        // BOTTOM-LEFT SPEEDOMETER + QUICK DESTINATION PRESETS
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1127,17 +1278,18 @@ fun EmbeddedNavigationMapCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 NavShortcutPill(icon = Icons.Rounded.Home, label = "Home") {
-                    onNavigateQuery("Home")
+                    onNavigateQuery("Flegmade 32, 7100 Vejle")
                 }
-                NavShortcutPill(icon = Icons.Rounded.Work, label = "Work") {
-                    onNavigateQuery("Work")
+                NavShortcutPill(icon = Icons.Rounded.LocalCafe, label = "Velvet") {
+                    onNavigateQuery("Café Velvet, Søndergade 24, Vejle")
                 }
-                NavShortcutPill(icon = Icons.Rounded.EvStation, label = "EV", tint = Color(0xFF4ADE80)) {
-                    onNavigateQuery("EV charging station")
+                NavShortcutPill(icon = Icons.Rounded.Favorite, label = "Love", tint = theme.accentGlow) {
+                    onNavigateQuery("Café Love, Søndergade 34, Vejle")
                 }
             }
         }
 
+        // BOTTOM-RIGHT ZOOM & RE-CENTER CONTROLS
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -1735,6 +1887,19 @@ fun Modifier.luxuryButtonSurface(
         .clip(shape)
         .background(bgBrush)
         .border(1.dp, borderColor, shape)
+}
+
+fun readPhoneBatteryPct(context: Context): Int {
+    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+    return if (level >= 0 && scale > 0) ((level * 100f) / scale).roundToInt().coerceIn(0, 100) else 85
+}
+
+fun bearingToCardinal(bearing: Float): String {
+    val dirs = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    val idx = (((bearing % 360f) + 360f) % 360f / 45f).roundToInt() % 8
+    return dirs[idx]
 }
 
 fun formatDuration(ms: Long): String {
