@@ -367,11 +367,50 @@ fun AiwaysU53DInspectorOverlay(
                     onClick = onClose
                 )
             }
-
-            Row(
+Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1.35f)
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AiwaysU5VehicleCard(
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
                 Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "POWERTRAIN & ARCHITECTURE",
+                        color = Color(0xFF7DD3FC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp
+                    )
+                    Text(
+                        text = "63 kWh CATL Sandwich Battery • 150 kW (204 HP) Front Motor • 310 Nm Torque • 400 km WLTP Range",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp
+                    )
+                    Text(
+                        text = "MAS Steel-Aluminum Body • Panoramic Sunroof • 12.3\" Central Touchscreen • 1920x720 Widescreen Mode",
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+            }
+        }
+    }
+}
