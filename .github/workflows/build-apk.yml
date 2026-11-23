@@ -1,12 +1,11 @@
-name: Build & Publish U5 Luxury Launcher APK
+name: Build U5 Luxury Launcher Debug APK
 
 on:
   push:
     branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
@@ -22,34 +21,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
 
-      - name: Build Signed Release APK
-        run: gradle assembleRelease --no-daemon
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
-      - name: Prepare Release Files
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk U5LuxuryLauncher.apk
-          VERSION_CODE=$(grep -E "versionCode\s*=" app/build.gradle.kts | head -n1 | tr -dc '0-9')
-          VERSION_NAME=$(grep -E "versionName\s*=" app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "{\"versionCode\": ${VERSION_CODE}, \"versionName\": \"${VERSION_NAME}\"}" > version.json
-          cat version.json
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
 
-      - name: Publish to GitHub Release (latest)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest U5LuxuryLauncher.apk version.json --clobber
-          else
-            gh release create latest U5LuxuryLauncher.apk version.json --title "U5 Luxury Launcher (Latest)" --notes "Auto-built signed APK for 1-tap in-app updates."
-          fi
-
-      - name: Upload APK Artifact
+      - name: Upload app-debug.apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: U5LuxuryLauncher-APK
-          path: U5LuxuryLauncher.apk
+          name: U5-Luxury-Launcher-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
