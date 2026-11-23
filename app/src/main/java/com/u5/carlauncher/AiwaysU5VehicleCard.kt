@@ -372,16 +372,37 @@ Row(
                     .fillMaxWidth()
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Box(
+Box(
                     modifier = Modifier
                         .weight(1.35f)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color(0xFF16202C), Color(0xFF0B0F17))
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    AiwaysU5VehicleCard(
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "AIWAYS U5",
+                            color = Color.White,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp
+                        )
+                        Text(
+                            text = "ELECTRIC SUV  •  READY",
+                            color = Color(0xFF7DD3FC),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.5.sp
+                        )
+                    }
                 }
 
                 Column(
