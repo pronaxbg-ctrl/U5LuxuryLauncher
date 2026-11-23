@@ -332,7 +332,7 @@ fun AiwaysU53DInspectorOverlay(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
+.size(42.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(Brush.linearGradient(listOf(Color(0xFF0EA5E9), Color(0xFF1D4ED8)))),
                         contentAlignment = Alignment.Center
@@ -367,12 +367,14 @@ fun AiwaysU53DInspectorOverlay(
                     onClick = onClose
                 )
             }
-Row(
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
-Box(
+            ) {
+                Box(
                     modifier = Modifier
                         .weight(1.35f)
                         .fillMaxHeight()
