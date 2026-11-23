@@ -24,6 +24,12 @@ android {
             keyPassword = "u5luxury2026"
             storeType = "PKCS12"
         }
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -34,7 +40,16 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
+    }
+
+    packaging {
+        dex {
+            useLegacyPackaging = true
         }
     }
 
