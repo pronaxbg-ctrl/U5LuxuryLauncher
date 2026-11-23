@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -130,6 +132,7 @@ fun NativeGoogleMapView(
     carBearing: Float,
     zoom: Int,
     isSatellite: Boolean,
+    routePoints: List<Pair<Double, Double>> = emptyList(),
     onPan: (Double, Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -225,6 +228,54 @@ fun NativeGoogleMapView(
                             colorFilter = colorFilter
                         )
                     }
+                }
+            }
+
+            // DRAW IN-APP NAVIGATION ROUTE POLYLINE & DESTINATION PIN
+            if (routePoints.size >= 2) {
+                val routePath = Path()
+                var destOffset: Offset? = null
+
+                routePoints.forEachIndexed { idx, (lat, lon) ->
+                    val (wx, wy) = latLonToWorldPx(lat, lon, zoom)
+                    val pt = Offset((wx - topLeftX).toFloat(), (wy - topLeftY).toFloat())
+                    if (idx == 0) {
+                        routePath.moveTo(pt.x, pt.y)
+                    } else {
+                        routePath.lineTo(pt.x, pt.y)
+                    }
+                    if (idx == routePoints.lastIndex) {
+                        destOffset = pt
+                    }
+                }
+
+                drawPath(
+                    path = routePath,
+                    color = Color(0xFF0284C7).copy(alpha = 0.55f),
+                    style = Stroke(width = 16f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+                drawPath(
+                    path = routePath,
+                    color = Color(0xFF38BDF8),
+                    style = Stroke(width = 9f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+
+                destOffset?.let { dest ->
+                    drawCircle(
+                        color = Color(0xFF4ADE80).copy(alpha = 0.30f),
+                        radius = 24f,
+                        center = dest
+                    )
+                    drawCircle(
+                        color = Color(0xFF4ADE80),
+                        radius = 10f,
+                        center = dest
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 4.5f,
+                        center = dest
+                    )
                 }
             }
 
